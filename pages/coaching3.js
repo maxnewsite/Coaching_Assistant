@@ -72,6 +72,11 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 import DownloadIcon from '@mui/icons-material/Download';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import TopicIcon from '@mui/icons-material/Topic';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import WarningIcon from '@mui/icons-material/Warning';
+import SignalWifiStatusbar4BarIcon from '@mui/icons-material/SignalWifiStatusbar4Bar';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -91,28 +96,33 @@ import { clearTranscription, setTranscription } from '../redux/transcriptionSlic
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
 
-// Pre-loaded Question Bank
+// Pre-loaded Question Bank with keywords
 const QUESTION_BANK = [
-  "What specific outcome are you hoping to achieve?",
-  "How does this align with your core values?",
-  "What would success look like in this situation?",
-  "What's the most important thing for you to focus on right now?",
-  "What options haven't you considered yet?",
-  "What would you do if you knew you couldn't fail?",
-  "What's really important to you about this?",
-  "What would your best self do in this situation?",
-  "What patterns do you notice in your approach?",
-  "What would need to change for this to work?",
-  "How might you approach this differently?",
-  "What's possible that you haven't thought of yet?",
-  "What would make the biggest difference?",
-  "What are you not saying that needs to be said?",
-  "What would you tell a friend in this situation?",
-  "What assumptions are you making?",
-  "What's the next smallest step you could take?",
-  "What would happen if you did nothing?",
-  "What support do you need to move forward?",
-  "What would you regret not trying?"
+  { question: "What specific outcome are you hoping to achieve?", keywords: ["goal", "target", "outcome", "achievement", "result"] },
+  { question: "How does this align with your core values?", keywords: ["values", "principles", "beliefs", "ethics", "integrity"] },
+  { question: "What would success look like in this situation?", keywords: ["success", "achievement", "victory", "completion", "accomplishment"] },
+  { question: "What's the most important thing for you to focus on right now?", keywords: ["priority", "focus", "important", "urgent", "crucial"] },
+  { question: "What options haven't you considered yet?", keywords: ["options", "alternatives", "possibilities", "choices", "solutions"] },
+  { question: "What would you do if you knew you couldn't fail?", keywords: ["fear", "failure", "risk", "doubt", "confidence"] },
+  { question: "What's really important to you about this?", keywords: ["important", "matter", "value", "significance", "meaning"] },
+  { question: "What would your best self do in this situation?", keywords: ["best", "ideal", "potential", "growth", "development"] },
+  { question: "What patterns do you notice in your approach?", keywords: ["pattern", "habit", "behavior", "routine", "tendency"] },
+  { question: "What would need to change for this to work?", keywords: ["change", "adapt", "modify", "adjust", "transform"] },
+  { question: "How might you approach this differently?", keywords: ["different", "alternative", "new", "creative", "innovative"] },
+  { question: "What's possible that you haven't thought of yet?", keywords: ["possible", "potential", "opportunity", "chance", "prospect"] },
+  { question: "What would make the biggest difference?", keywords: ["difference", "impact", "effect", "influence", "change"] },
+  { question: "What are you not saying that needs to be said?", keywords: ["communication", "honest", "truth", "expression", "voice"] },
+  { question: "What would you tell a friend in this situation?", keywords: ["advice", "friend", "perspective", "counsel", "guidance"] },
+  { question: "What assumptions are you making?", keywords: ["assumption", "belief", "presumption", "expectation", "hypothesis"] },
+  { question: "What's the next smallest step you could take?", keywords: ["step", "action", "progress", "movement", "forward"] },
+  { question: "What would happen if you did nothing?", keywords: ["nothing", "inaction", "status quo", "wait", "delay"] },
+  { question: "What support do you need to move forward?", keywords: ["support", "help", "assistance", "resources", "backup"] },
+  { question: "What would you regret not trying?", keywords: ["regret", "try", "attempt", "opportunity", "chance"] },
+  { question: "How does this situation make you feel?", keywords: ["feel", "emotion", "sentiment", "mood", "reaction"] },
+  { question: "What's driving your decision-making process?", keywords: ["decision", "choice", "motivation", "drive", "reason"] },
+  { question: "What would confidence look like in this scenario?", keywords: ["confidence", "self-assurance", "courage", "boldness", "certainty"] },
+  { question: "What's working well that you could build upon?", keywords: ["working", "strength", "success", "positive", "build"] },
+  { question: "How can you leverage your existing strengths?", keywords: ["strength", "talent", "skill", "ability", "capability"] }
 ];
 
 // Utility function
@@ -169,11 +179,17 @@ export default function CoachingPage() {
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
 
-  // Summary States (simplified)
-  const [currentCoacheeSummary, setCurrentCoacheeSummary] = useState('');
+  // Summary States (Main Topic focused)
+  const [currentMainTopic, setCurrentMainTopic] = useState('');
   const [summaryTimer, setSummaryTimer] = useState(0);
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [summaryHistory, setSummaryHistory] = useState([]);
+  const [generatingTopic, setGeneratingTopic] = useState(false);
+  const [topicHistory, setTopicHistory] = useState([]);
+
+  // Transcription Feedback States
+  const [coachTranscriptionStatus, setCoachTranscriptionStatus] = useState('idle'); // idle, active, error
+  const [coacheeTranscriptionStatus, setCoacheeTranscriptionStatus] = useState('idle');
+  const [lastCoachActivity, setLastCoachActivity] = useState(null);
+  const [lastCoacheeActivity, setLastCoacheeActivity] = useState(null);
 
   // Session Management States
   const [sessionTopics, setSessionTopics] = useState([]);
@@ -197,11 +213,30 @@ export default function CoachingPage() {
   const tempSpeechBuffer = useRef({ coach: '', coachee: '' });
   const systemAudioStreamRef = useRef(null);
 
-  // Initialize preloaded questions
+  // Initialize preloaded questions (all of them)
   useEffect(() => {
-    const shuffled = [...QUESTION_BANK].sort(() => 0.5 - Math.random());
-    setPreloadedQuestions(shuffled.slice(0, 10));
+    setPreloadedQuestions([...QUESTION_BANK]);
   }, []);
+
+  // Highlight relevant questions based on current dialogue
+  const getHighlightedQuestions = useCallback(() => {
+    if (dialogueBufferRef.current.length === 0) return preloadedQuestions;
+
+    const recentText = dialogueBufferRef.current
+      .slice(-5)
+      .map(item => item.text.toLowerCase())
+      .join(' ');
+
+    return preloadedQuestions.map(item => ({
+      ...item,
+      relevance: item.keywords.reduce((score, keyword) => {
+        if (recentText.includes(keyword.toLowerCase())) {
+          return score + 1;
+        }
+        return score;
+      }, 0)
+    })).sort((a, b) => b.relevance - a.relevance);
+  }, [preloadedQuestions]);
 
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -212,26 +247,27 @@ export default function CoachingPage() {
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
-  // Export Summary History
-  const exportSummaryHistory = () => {
+  // Export Topic History
+  const exportTopicHistory = () => {
     const data = {
       sessionDate: new Date().toISOString(),
-      currentSummary: currentCoacheeSummary,
-      summaryHistory: summaryHistory,
-      sessionTopics: sessionTopics
+      currentMainTopic: currentMainTopic,
+      topicHistory: topicHistory,
+      sessionTopics: sessionTopics,
+      dialogueDuration: dialogueDuration
     };
     
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `coaching-session-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `coaching-topics-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     
-    showSnackbar('Summary history exported successfully', 'success');
+    showSnackbar('Topic history exported successfully', 'success');
   };
 
   // Settings Management
@@ -337,14 +373,14 @@ export default function CoachingPage() {
     };
   }, [isDialogueActive, appConfig]);
 
-  // Summary Timer Management (2 minutes = 120 seconds)
+  // Topic Generation Timer (2 minutes = 120 seconds)
   useEffect(() => {
     if (isDialogueActive) {
       summaryTimerRef.current = setInterval(() => {
         setSummaryTimer(prev => {
           const newTimer = prev + 1;
           if (newTimer >= 120) { // Every 2 minutes
-            generateSummary();
+            generateMainTopic();
             return 0; // Reset timer
           }
           return newTimer;
@@ -367,72 +403,73 @@ export default function CoachingPage() {
   useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
   useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
 
-  // Summary Generation Function (2 minutes)
-  const generateSummary = async () => {
-    if (!aiClient || isAILoading || generatingSummary) return;
+  // Main Topic Generation Function (2 minutes)
+  const generateMainTopic = async () => {
+    if (!aiClient || isAILoading || generatingTopic) return;
     
     const coacheeText = tempSpeechBuffer.current.coachee.trim();
     
     if (!coacheeText) return;
 
-    setGeneratingSummary(true);
+    setGeneratingTopic(true);
     
     try {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
       
-      // Generate coachee summary
-      const prompt = `Summarize in 1-2 sentences what the coachee discussed in the last 2 minutes: "${coacheeText}"`;
+      // Generate main topic in conversation language
+      const prompt = `In ${language}, identify the main topic/theme the coachee is discussing in 3-5 words maximum. Based on: "${coacheeText}"`;
       
-      let summaryResponse = '';
+      let topicResponse = '';
       if (aiClient.type === 'anthropic') {
         const response = await aiClient.client.messages.create({
           model: appConfig.aiModel,
-          max_tokens: 100,
+          max_tokens: 50,
           temperature: 0.3,
-          system: "You are summarizing coaching session content. Be concise and focus on key points.",
+          system: `You identify main themes in coaching conversations. Respond only with the main topic in ${language}, maximum 5 words.`,
           messages: [{ role: 'user', content: prompt }]
         });
-        summaryResponse = response.content[0].text;
+        topicResponse = response.content[0].text;
       } else if (aiClient.type === 'openai') {
         const response = await aiClient.client.chat.completions.create({
           model: appConfig.aiModel,
           messages: [
-            { role: 'system', content: "You are summarizing coaching session content. Be concise and focus on key points." },
+            { role: 'system', content: `You identify main themes in coaching conversations. Respond only with the main topic in ${language}, maximum 5 words.` },
             { role: 'user', content: prompt }
           ],
           temperature: 0.3,
-          max_tokens: 100
+          max_tokens: 50
         });
-        summaryResponse = response.choices[0].message.content;
+        topicResponse = response.choices[0].message.content;
       } else if (aiClient.type === 'gemini') {
         const model = aiClient.client.getGenerativeModel({
           model: appConfig.aiModel,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 100 }
+          generationConfig: { temperature: 0.3, maxOutputTokens: 50 }
         });
         const result = await model.generateContent(prompt);
-        summaryResponse = result.response.text();
+        topicResponse = result.response.text();
       }
       
-      // Store previous summary in history before updating
-      if (currentCoacheeSummary) {
-        setSummaryHistory(prev => [{ 
-          text: currentCoacheeSummary, 
+      // Store previous topic in history before updating
+      if (currentMainTopic) {
+        setTopicHistory(prev => [{ 
+          topic: currentMainTopic, 
           timestamp: new Date(Date.now() - 120000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
           id: Date.now() - 120000 
         }, ...prev]);
       }
       
-      // Update current summary
-      setCurrentCoacheeSummary(summaryResponse);
+      // Update current topic
+      setCurrentMainTopic(topicResponse.trim());
       
       // Clear the temporary buffer
       tempSpeechBuffer.current = { coach: '', coachee: '' };
       
     } catch (error) {
-      console.error('Error generating summary:', error);
-      showSnackbar('Failed to generate summary: ' + error.message, 'error');
+      console.error('Error generating main topic:', error);
+      showSnackbar('Failed to generate main topic: ' + error.message, 'error');
     } finally {
-      setGeneratingSummary(false);
+      setGeneratingTopic(false);
     }
   };
 
@@ -459,23 +496,37 @@ export default function CoachingPage() {
 
     const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
+    // Update transcription status to active
+    if (source === 'coach') {
+      setCoachTranscriptionStatus('active');
+    } else {
+      setCoacheeTranscriptionStatus('active');
+    }
+
     recognizer.recognizing = (s, e) => {
       if (e.result.reason === SpeechSDK.ResultReason.RecognizingSpeech) {
         const interimText = e.result.text;
         if (source === 'coachee') {
           coacheeInterimTranscription.current = interimText;
           dispatch(setTranscription(finalTranscript.current.coachee + interimText));
+          setLastCoacheeActivity(Date.now());
         } else {
           coachInterimTranscription.current = interimText;
           setCoachTranscription(finalTranscript.current.coach + interimText);
+          setLastCoachActivity(Date.now());
         }
       }
     };
 
     recognizer.recognized = (s, e) => {
       if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
-        if (source === 'coachee') coacheeInterimTranscription.current = '';
-        else coachInterimTranscription.current = '';
+        if (source === 'coachee') {
+          coacheeInterimTranscription.current = '';
+          setLastCoacheeActivity(Date.now());
+        } else {
+          coachInterimTranscription.current = '';
+          setLastCoachActivity(Date.now());
+        }
         handleTranscriptionEvent(e.result.text, source);
       }
     };
@@ -486,6 +537,11 @@ export default function CoachingPage() {
         console.error(`CANCELED: ErrorCode=${e.errorCode}`);
         console.error(`CANCELED: ErrorDetails=${e.errorDetails}`);
         showSnackbar(`Speech recognition error for ${source}: ${e.errorDetails}`, 'error');
+        if (source === 'coach') {
+          setCoachTranscriptionStatus('error');
+        } else {
+          setCoacheeTranscriptionStatus('error');
+        }
       }
       stopRecording(source);
     };
@@ -503,6 +559,11 @@ export default function CoachingPage() {
       showSnackbar(`Failed to start ${source} recognition: ${error.message}`, 'error');
       if (audioConfig?.close) audioConfig.close();
       mediaStream.getTracks().forEach(track => track.stop());
+      if (source === 'coach') {
+        setCoachTranscriptionStatus('error');
+      } else {
+        setCoacheeTranscriptionStatus('error');
+      }
       return null;
     }
   };
@@ -514,6 +575,8 @@ export default function CoachingPage() {
     if (recognizer?.stopContinuousRecognitionAsync) {
       try {
         await recognizer.stopContinuousRecognitionAsync();
+        
+        // Properly close the recognizer and audio config
         if (recognizer.audioConfig?.privSource?.privStream) {
           const stream = recognizer.audioConfig.privSource.privStream;
           if (stream instanceof MediaStream) {
@@ -523,21 +586,35 @@ export default function CoachingPage() {
         if (recognizer.audioConfig?.close) {
           recognizer.audioConfig.close();
         }
+        
+        // Call recognizer close if available
+        if (recognizer.close) {
+          recognizer.close();
+        }
+        
       } catch (error) {
         console.error(`Error stopping ${source} recognition:`, error);
         showSnackbar(`Error stopping ${source} audio: ${error.message}`, 'error');
       } finally {
+        // Update states
         if (source === 'coach') {
           setIsCoachMicActive(false);
           setCoachRecognizer(null);
+          setCoachTranscriptionStatus('idle');
         } else if (source === 'coachee') {
           setIsCoacheeMicActive(false);
           setCoacheeRecognizer(null);
+          setCoacheeTranscriptionStatus('idle');
         } else if (source === 'system') {
           setIsSystemAudioActive(false);
           setCoacheeRecognizer(null);
+          setCoacheeTranscriptionStatus('idle');
+          
+          // Additional cleanup for system audio
           if (systemAudioStreamRef.current) {
-            systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
+            systemAudioStreamRef.current.getTracks().forEach(track => {
+              track.stop();
+            });
             systemAudioStreamRef.current = null;
           }
         }
@@ -559,7 +636,11 @@ export default function CoachingPage() {
 
     try {
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        },
         video: {
           displaySurface: 'browser',
           logicalSurface: true
@@ -585,6 +666,8 @@ export default function CoachingPage() {
         setCoacheeRecognizer(recognizerInstance);
         setIsSystemAudioActive(true);
         showSnackbar('System audio recording started for coachee.', 'success');
+        
+        // Handle stream end events
         mediaStream.getTracks().forEach(track => {
           track.onended = () => {
             showSnackbar('Tab sharing ended.', 'info');
@@ -607,6 +690,7 @@ export default function CoachingPage() {
         showSnackbar(`Failed to start system audio capture: ${error.message || 'Unknown error'}`, 'error');
       }
       setIsSystemAudioActive(false);
+      setCoacheeTranscriptionStatus('idle');
       systemAudioStreamRef.current = null;
     }
   };
@@ -625,7 +709,13 @@ export default function CoachingPage() {
     }
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100
+        }
+      });
       const currentRecognizer = source === 'coach' ? coachRecognizer : coacheeRecognizer;
       
       if (currentRecognizer) await stopRecording(source);
@@ -652,8 +742,10 @@ export default function CoachingPage() {
       }
       if (source === 'coach') {
         setIsCoachMicActive(false);
+        setCoachTranscriptionStatus('idle');
       } else {
         setIsCoacheeMicActive(false);
+        setCoacheeTranscriptionStatus('idle');
       }
     }
   };
@@ -671,7 +763,7 @@ export default function CoachingPage() {
     // Reset the last activity time
     lastQuestionTimeRef.current = Date.now();
     
-    // Add to temporary speech buffer for summaries
+    // Add to temporary speech buffer for topic generation
     tempSpeechBuffer.current[source] += cleanText + ' ';
     
     // Add to dialogue buffer for context
@@ -874,36 +966,7 @@ export default function CoachingPage() {
     }
   };
 
-  // Question Generation
-  const getLanguageInstructions = (azureLanguage) => {
-    const languageMap = {
-      'en-US': 'English',
-      'en-GB': 'English', 
-      'it-IT': 'Italian',
-      'fr-FR': 'French',
-      'es-ES': 'Spanish',
-      'de-DE': 'German',
-      'pt-PT': 'Portuguese',
-      'nl-NL': 'Dutch',
-      'ru-RU': 'Russian',
-      'ja-JP': 'Japanese',
-      'ko-KR': 'Korean',
-      'zh-CN': 'Chinese (Simplified)',
-      'zh-TW': 'Chinese (Traditional)'
-    };
-    
-    const language = languageMap[azureLanguage] || 'English';
-    
-    if (language === 'English') {
-      return 'Generate questions in English.';
-    }
-    
-    return `Generate questions in ${language}. Ensure the questions are:
-- Natural and fluent in ${language}
-- Culturally appropriate for ${language}-speaking contexts
-- Using proper coaching terminology in ${language}`;
-  };
-
+  // Question Generation with specific prompt
   const generateCoachingQuestions = async (numQuestions = null) => {
     const questionsToGenerate = numQuestions || appConfig.numberOfQuestions || 2;
     
@@ -920,22 +983,16 @@ export default function CoachingPage() {
       .map(item => `${item.source}: ${item.text}`)
       .join('\n');
     
-    const questionStyle = analyzeDialogueForQuestionStyle(dialogueBufferRef.current);
-    const languageInstructions = getLanguageInstructions(appConfig.azureLanguage || 'en-US');
+    const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
     
-    const prompt = `As an expert executive coach, generate exactly ${questionsToGenerate} powerful coaching question(s) based on the conversation context provided.
+    const prompt = `Generate exactly ${questionsToGenerate} powerful coaching questions in ${language} based on the conversation context. Follow these specific guidelines:
 
-${languageInstructions}
-
-Guidelines for powerful coaching questions:
 - Use open-ended questions that cannot be answered with yes/no
 - Keep questions short and clear (ideally under 15 words)
 - Focus on the coachee's thoughts, feelings, and actions
 - Avoid "why" questions when possible (use "what" or "how" instead)
 - Include questions that challenge assumptions
 - Ensure questions are non-judgmental and curious
-
-Style: ${questionStyle}
 
 Recent conversation context:
 ${recentDialogue || 'No recent dialogue captured yet.'}
@@ -950,7 +1007,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           model: appConfig.aiModel,
           max_tokens: 200,
           temperature: 0.7,
-          system: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language.",
+          system: `You are an expert executive coach. Generate powerful, open-ended coaching questions in ${language}.`,
           messages: [{ role: 'user', content: prompt }]
         });
         questionsResponse = response.content[0].text;
@@ -959,7 +1016,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         const response = await aiClient.client.chat.completions.create({
           model: appConfig.aiModel,
           messages: [
-            { role: 'system', content: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language." },
+            { role: 'system', content: `You are an expert executive coach. Generate powerful, open-ended coaching questions in ${language}.` },
             { role: 'user', content: prompt }
           ],
           temperature: 0.7,
@@ -1064,16 +1121,16 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </Dialog>
   );
 
-  // Summary Card Component (simplified)
-  const SimplifiedSummaryCard = () => (
+  // Main Topic Card Component
+  const MainTopicCard = () => (
     <Card sx={{ mb: 2 }}>
       <CardHeader 
-        title="Coachee Summary"
-        avatar={<SummarizeIcon />}
-        subheader={`Next summary in ${Math.floor((120 - summaryTimer) / 60)}:${((120 - summaryTimer) % 60).toString().padStart(2, '0')}`}
+        title="Current Main Topic"
+        avatar={<TopicIcon />}
+        subheader={`Next update in ${Math.floor((120 - summaryTimer) / 60)}:${((120 - summaryTimer) % 60).toString().padStart(2, '0')}`}
         action={
-          <Tooltip title="Export Summary History">
-            <IconButton onClick={exportSummaryHistory} disabled={summaryHistory.length === 0}>
+          <Tooltip title="Export Topic History">
+            <IconButton onClick={exportTopicHistory} disabled={topicHistory.length === 0}>
               <DownloadIcon />
             </IconButton>
           </Tooltip>
@@ -1081,50 +1138,133 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         sx={{ pb: 1 }}
       />
       <CardContent>
-        {currentCoacheeSummary ? (
+        {currentMainTopic ? (
           <Paper 
             sx={{ 
-              p: 2,
-              bgcolor: 'success.50',
-              border: `2px solid ${theme.palette.success.main}`,
-              borderColor: 'success.main'
+              p: 3,
+              bgcolor: 'primary.50',
+              border: `2px solid ${theme.palette.primary.main}`,
+              borderColor: 'primary.main',
+              textAlign: 'center'
             }}
             elevation={3}
           >
             <Typography 
-              variant="body1" 
+              variant="h5" 
               sx={{ 
                 fontWeight: 'bold',
-                mb: 0.5
+                mb: 1,
+                color: 'primary.main'
               }}
             >
-              {currentCoacheeSummary}
+              {currentMainTopic}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Typography>
           </Paper>
         ) : (
-          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            {generatingSummary ? 'Generating summary...' : 'Summary will appear every 2 minutes during active dialogue.'}
-          </Typography>
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <TopicIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
+            <Typography variant="h6" color="text.secondary">
+              {generatingTopic ? 'Analyzing topic...' : 'Topic will appear during active dialogue'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {generatingTopic ? 'Please wait while we identify the main theme...' : 'Main topic updates every 2 minutes'}
+            </Typography>
+            {generatingTopic && <CircularProgress sx={{ mt: 2 }} />}
+          </Box>
         )}
         
         <LinearProgress 
           variant="determinate" 
           value={(summaryTimer / 120) * 100}
           sx={{ mt: 2, height: 6, borderRadius: 3 }}
-          color="success"
+          color="primary"
         />
         
-        {summaryHistory.length > 0 && (
+        {topicHistory.length > 0 && (
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            {summaryHistory.length} previous summary(ies) in history
+            {topicHistory.length} previous topic(s) in history
           </Typography>
         )}
       </CardContent>
     </Card>
   );
+
+  // Transcription Feedback Component
+  const TranscriptionFeedback = () => {
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'active': return 'success';
+        case 'error': return 'error';
+        default: return 'grey';
+      }
+    };
+
+    const getStatusIcon = (status) => {
+      switch (status) {
+        case 'active': return <CheckCircleIcon fontSize="small" />;
+        case 'error': return <ErrorIcon fontSize="small" />;
+        default: return <SignalWifiStatusbar4BarIcon fontSize="small" />;
+      }
+    };
+
+    const getStatusText = (status, lastActivity, isActive) => {
+      if (status === 'error') return 'Error';
+      if (status === 'active' && isActive) {
+        if (lastActivity && Date.now() - lastActivity < 5000) {
+          return 'Active';
+        }
+        return 'Listening';
+      }
+      return 'Idle';
+    };
+
+    return (
+      <Card sx={{ mb: 2 }}>
+        <CardHeader 
+          title="Transcription Status"
+          avatar={<SignalWifiStatusbar4BarIcon />}
+          sx={{ pb: 1 }}
+        />
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {getStatusIcon(coacheeTranscriptionStatus)}
+              <Typography variant="body2" color={`${getStatusColor(coacheeTranscriptionStatus)}.main`}>
+                Coachee: {getStatusText(coacheeTranscriptionStatus, lastCoacheeActivity, isSystemAudioActive || isCoacheeMicActive)}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {getStatusIcon(coachTranscriptionStatus)}
+              <Typography variant="body2" color={`${getStatusColor(coachTranscriptionStatus)}.main`}>
+                Coach: {getStatusText(coachTranscriptionStatus, lastCoachActivity, isCoachMicActive)}
+              </Typography>
+            </Box>
+          </Box>
+          
+          {(coacheeTranscriptionStatus === 'active' || coachTranscriptionStatus === 'active') && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+              <CheckCircleIcon color="success" fontSize="small" />
+              <Typography variant="caption" color="success.main">
+                Transcription working properly
+              </Typography>
+            </Box>
+          )}
+          
+          {(coacheeTranscriptionStatus === 'error' || coachTranscriptionStatus === 'error') && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+              <ErrorIcon color="error" fontSize="small" />
+              <Typography variant="caption" color="error.main">
+                Transcription issues detected
+              </Typography>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   // Audio Status Component
   const AudioStatusIndicator = ({ isActive, color, label }) => (
@@ -1196,17 +1336,17 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
         <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
           <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-            {/* Left Panel - Audio Controls & Summary */}
+            {/* Left Panel - Main Topic & Audio Controls */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Main Topic Card */}
+              <MainTopicCard />
+              
+              {/* Transcription Feedback */}
+              <TranscriptionFeedback />
+              
               <Card>
-                <CardHeader title="Coachee Audio" avatar={<RecordVoiceOverIcon />} sx={{ pb: 1 }} />
+                <CardHeader title="Audio Controls" avatar={<RecordVoiceOverIcon />} sx={{ pb: 1 }} />
                 <CardContent>
-                  <FormControlLabel
-                    control={<Switch checked={coacheeAutoMode} onChange={e => setCoacheeAutoMode(e.target.checked)} color="primary" />}
-                    label="Auto-Submit Speech"
-                    sx={{ mb: 1 }}
-                  />
-                  
                   <Button
                     onClick={startSystemAudioRecognition}
                     variant="contained"
@@ -1214,34 +1354,19 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
                     fullWidth
                     size="large"
+                    sx={{ mb: 2 }}
                   >
                     {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
                   </Button>
-                  <Typography variant="caption" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>
-                    {isSystemAudioActive ? 'Recording system audio...' : 'Select Chrome Tab → Check "Share audio"'}
-                  </Typography>
-                </CardContent>
-              </Card>
-              
-              {/* Simplified Coachee Summary */}
-              <SimplifiedSummaryCard />
-              
-              <Card>
-                <CardHeader title="Coach Audio" avatar={<PersonIcon />} sx={{ pb: 1 }} />
-                <CardContent>
-                  <FormControlLabel
-                    control={<Switch checked={isManualMode} onChange={e => setIsManualMode(e.target.checked)} color="primary" />}
-                    label="Manual Input Mode"
-                    sx={{ mb: 1 }}
-                  />
+                  
                   <Button
                     onClick={() => startMicrophoneRecognition('coach')}
-                    variant="contained"
+                    variant="outlined"
                     color={isCoachMicActive ? 'error' : 'primary'}
                     startIcon={isCoachMicActive ? <MicOffIcon /> : <MicIcon />}
                     fullWidth
                   >
-                    {isCoachMicActive ? 'Stop Mic' : 'Start Mic'}
+                    {isCoachMicActive ? 'Stop Coach Mic' : 'Start Coach Mic'}
                   </Button>
                 </CardContent>
               </Card>
@@ -1386,53 +1511,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               </Card>
             </Grid>
 
-            {/* Right Panel - Question Bank & Session Topics */}
+            {/* Right Panel - Smart Question Bank */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column' }}>
-              <Card sx={{ mb: 2 }}>
-                <CardHeader
-                  title="Session Topics"
-                  avatar={<PlaylistAddCheckIcon />}
-                  sx={{ pb: 1 }}
-                />
-                <CardContent>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      placeholder="Add a topic..."
-                      value={currentTopic}
-                      onChange={(e) => setCurrentTopic(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && addSessionTopic()}
-                    />
-                    <Button 
-                      variant="outlined" 
-                      onClick={addSessionTopic}
-                      disabled={!currentTopic.trim()}
-                    >
-                      Add
-                    </Button>
-                  </Box>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {sessionTopics.map((topic, index) => (
-                      <Chip
-                        key={index}
-                        label={topic}
-                        onDelete={() => removeSessionTopic(topic)}
-                        color="secondary"
-                        variant="outlined"
-                        size="small"
-                      />
-                    ))}
-                  </Box>
-                </CardContent>
-              </Card>
-              
-              {/* Question Bank (instead of AI Insights) */}
+              {/* Question Bank (Smart Highlighting) */}
               <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <CardHeader
                   title="Question Bank"
                   avatar={<MenuBookIcon />}
-                  subheader="Pre-loaded coaching questions"
+                  subheader="Smart highlighting based on dialogue"
                   sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
                 />
                 <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
@@ -1441,24 +1527,42 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     followButtonClassName="hidden-follow-button"
                   >
                     <List sx={{ px: 1, py: 1 }} dense>
-                      {preloadedQuestions.map((question, index) => (
+                      {getHighlightedQuestions().map((item, index) => (
                         <ListItem 
                           key={index}
                           sx={{ 
                             cursor: 'pointer',
                             borderRadius: 1,
                             mb: 0.5,
+                            bgcolor: item.relevance > 0 ? 'warning.50' : 'transparent',
+                            border: item.relevance > 0 ? `1px solid ${theme.palette.warning.main}` : '1px solid transparent',
                             '&:hover': {
-                              bgcolor: 'action.hover'
+                              bgcolor: item.relevance > 0 ? 'warning.100' : 'action.hover'
                             }
                           }}
-                          onClick={() => askAI(question, 'preloaded')}
+                          onClick={() => askAI(item.question, 'preloaded')}
                         >
                           <ListItemText
                             primary={
-                              <Typography variant="body2" sx={{ fontWeight: 'normal' }}>
-                                {question}
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {item.relevance > 0 && (
+                                  <Chip 
+                                    label="Relevant" 
+                                    size="small" 
+                                    color="warning"
+                                    sx={{ fontSize: '0.7rem', height: 20 }}
+                                  />
+                                )}
+                                <Typography 
+                                  variant="body2" 
+                                  sx={{ 
+                                    fontWeight: item.relevance > 0 ? 'bold' : 'normal',
+                                    color: item.relevance > 0 ? 'warning.dark' : 'text.primary'
+                                  }}
+                                >
+                                  {item.question}
+                                </Typography>
+                              </Box>
                             }
                           />
                         </ListItem>

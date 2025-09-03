@@ -1,4 +1,4 @@
-// pages/coaching.js - Simplified Executive Coaching Assistant
+// pages/coaching.js - Enhanced Executive Coaching Assistant with Complete Session Recording
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -44,7 +44,8 @@ import {
   Typography,
   useTheme,
   Fade,
-  Grow
+  Grow,
+  Badge
 } from '@mui/material';
 
 // MUI Icons
@@ -77,6 +78,9 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import WarningIcon from '@mui/icons-material/Warning';
 import SignalWifiStatusbar4BarIcon from '@mui/icons-material/SignalWifiStatusbar4Bar';
+import SaveIcon from '@mui/icons-material/Save';
+import HistoryIcon from '@mui/icons-material/History';
+import TranscribeIcon from '@mui/icons-material/Transcribe';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -195,6 +199,36 @@ export default function CoachingPage() {
   const [sessionTopics, setSessionTopics] = useState([]);
   const [currentTopic, setCurrentTopic] = useState('');
 
+  // Enhanced Session Recording States
+  const [sessionRecording, setSessionRecording] = useState({
+    sessionId: null,
+    startTime: null,
+    endTime: null,
+    metadata: {
+      coachName: '',
+      coacheeName: '',
+      sessionType: 'executive_coaching',
+      language: 'en',
+      totalDuration: 0
+    },
+    transcripts: {
+      coach: [],
+      coachee: []
+    },
+    events: [],
+    aiInteractions: [],
+    topics: [],
+    summaries: [],
+    statistics: {
+      totalWords: { coach: 0, coachee: 0 },
+      totalSpeakingTime: { coach: 0, coachee: 0 },
+      questionsGenerated: 0,
+      topicsDiscussed: 0
+    }
+  });
+  const [isRecording, setIsRecording] = useState(false);
+  const [sessionStartTime, setSessionStartTime] = useState(null);
+
   // Refs
   const pipWindowRef = useRef(null);
   const documentPipWindowRef = useRef(null);
@@ -212,6 +246,355 @@ export default function CoachingPage() {
   const dialogueBufferRef = useRef([]);
   const tempSpeechBuffer = useRef({ coach: '', coachee: '' });
   const systemAudioStreamRef = useRef(null);
+  const sessionRecordingRef = useRef(sessionRecording);
+
+  // Update session recording ref when state changes
+  useEffect(() => {
+    sessionRecordingRef.current = sessionRecording;
+  }, [sessionRecording]);
+
+  // Initialize session recording
+  const startSessionRecording = () => {
+    const startTime = new Date();
+    const sessionId = `coaching_${startTime.toISOString().replace(/[:.]/g, '_')}`;
+    
+    const newSessionRecording = {
+      sessionId,
+      startTime: startTime.toISOString(),
+      endTime: null,
+      metadata: {
+        coachName: appConfig.coachName || 'Coach',
+        coacheeName: appConfig.coacheeName || 'Coachee',
+        sessionType: 'executive_coaching',
+        language: appConfig.azureLanguage || 'en-US',
+        totalDuration: 0
+      },
+      transcripts: {
+        coach: [],
+        coachee: []
+      },
+      events: [{
+        type: 'session_started',
+        timestamp: startTime.toISOString(),
+        description: 'Coaching session recording started'
+      }],
+      aiInteractions: [],
+      topics: [],
+      summaries: [],
+      statistics: {
+        totalWords: { coach: 0, coachee: 0 },
+        totalSpeakingTime: { coach: 0, coachee: 0 },
+        questionsGenerated: 0,
+        topicsDiscussed: 0
+      }
+    };
+
+    setSessionRecording(newSessionRecording);
+    setIsRecording(true);
+    setSessionStartTime(startTime);
+    showSnackbar('Session recording started', 'success');
+  };
+
+  // Stop session recording
+  const stopSessionRecording = () => {
+    if (!isRecording) return;
+
+    const endTime = new Date();
+    const updatedRecording = {
+      ...sessionRecording,
+      endTime: endTime.toISOString(),
+      metadata: {
+        ...sessionRecording.metadata,
+        totalDuration: Math.floor((endTime - new Date(sessionRecording.startTime)) / 1000)
+      },
+      events: [
+        ...sessionRecording.events,
+        {
+          type: 'session_ended',
+          timestamp: endTime.toISOString(),
+          description: 'Coaching session recording stopped'
+        }
+      ]
+    };
+
+    setSessionRecording(updatedRecording);
+    setIsRecording(false);
+    showSnackbar('Session recording stopped', 'info');
+  };
+
+  // Add transcription to session recording
+  const addTranscriptionToSession = useCallback((text, source, timestamp = null) => {
+    if (!isRecording) return;
+
+    const time = timestamp || new Date().toISOString();
+    const words = text.trim().split(/\s+/).length;
+
+    setSessionRecording(prev => {
+      const updated = {
+        ...prev,
+        transcripts: {
+          ...prev.transcripts,
+          [source]: [
+            ...prev.transcripts[source],
+            {
+              text: text.trim(),
+              timestamp: time,
+              wordCount: words,
+              duration: null // Could be calculated if needed
+            }
+          ]
+        },
+        statistics: {
+          ...prev.statistics,
+          totalWords: {
+            ...prev.statistics.totalWords,
+            [source]: prev.statistics.totalWords[source] + words
+          }
+        }
+      };
+      return updated;
+    });
+  }, [isRecording]);
+
+  // Add event to session recording
+  const addEventToSession = useCallback((type, description, data = null) => {
+    if (!isRecording) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      events: [
+        ...prev.events,
+        {
+          type,
+          timestamp: new Date().toISOString(),
+          description,
+          data
+        }
+      ]
+    }));
+  }, [isRecording]);
+
+  // Add AI interaction to session recording
+  const addAIInteractionToSession = useCallback((question, response, source, questionsGenerated = null) => {
+    if (!isRecording) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      aiInteractions: [
+        ...prev.aiInteractions,
+        {
+          timestamp: new Date().toISOString(),
+          question: question.trim(),
+          response: response.trim(),
+          source,
+          questionsGenerated,
+          questionSource: source === 'suggested' ? 'AI Generated' : source === 'preloaded' ? 'Question Bank' : 'Manual Input'
+        }
+      ],
+      statistics: {
+        ...prev.statistics,
+        questionsGenerated: questionsGenerated ? prev.statistics.questionsGenerated + questionsGenerated.length : prev.statistics.questionsGenerated
+      }
+    }));
+  }, [isRecording]);
+
+  // Add topic to session recording
+  const addTopicToSession = useCallback((topic, context = '') => {
+    if (!isRecording) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      topics: [
+        ...prev.topics,
+        {
+          topic: topic.trim(),
+          timestamp: new Date().toISOString(),
+          context: context.trim(),
+          duration: null
+        }
+      ],
+      statistics: {
+        ...prev.statistics,
+        topicsDiscussed: prev.statistics.topicsDiscussed + 1
+      }
+    }));
+  }, [isRecording]);
+
+  // Export complete session data
+  const exportCompleteSession = () => {
+    if (!sessionRecording.sessionId) {
+      showSnackbar('No session to export', 'warning');
+      return;
+    }
+
+    // Create comprehensive session export
+    const exportData = {
+      ...sessionRecording,
+      exportInfo: {
+        exportedAt: new Date().toISOString(),
+        exportVersion: '2.0',
+        appVersion: '1.0.0'
+      },
+      fullTranscription: {
+        chronological: generateChronologicalTranscription(),
+        separated: {
+          coach: sessionRecording.transcripts.coach.map(t => t.text).join('\n\n'),
+          coachee: sessionRecording.transcripts.coachee.map(t => t.text).join('\n\n')
+        }
+      },
+      analysisData: generateSessionAnalysis()
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sessionRecording.sessionId}_complete_session.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showSnackbar('Complete session exported successfully', 'success');
+  };
+
+  // Generate chronological transcription
+  const generateChronologicalTranscription = () => {
+    const allEntries = [];
+
+    // Add transcripts
+    sessionRecording.transcripts.coach.forEach(entry => {
+      allEntries.push({
+        timestamp: entry.timestamp,
+        type: 'transcription',
+        source: 'coach',
+        content: entry.text,
+        wordCount: entry.wordCount
+      });
+    });
+
+    sessionRecording.transcripts.coachee.forEach(entry => {
+      allEntries.push({
+        timestamp: entry.timestamp,
+        type: 'transcription',
+        source: 'coachee',
+        content: entry.text,
+        wordCount: entry.wordCount
+      });
+    });
+
+    // Add AI interactions
+    sessionRecording.aiInteractions.forEach(interaction => {
+      allEntries.push({
+        timestamp: interaction.timestamp,
+        type: 'ai_question',
+        source: 'ai',
+        content: interaction.question,
+        questionSource: interaction.questionSource
+      });
+      
+      allEntries.push({
+        timestamp: interaction.timestamp,
+        type: 'ai_response',
+        source: 'ai',
+        content: interaction.response
+      });
+    });
+
+    // Add events
+    sessionRecording.events.forEach(event => {
+      allEntries.push({
+        timestamp: event.timestamp,
+        type: 'event',
+        source: 'system',
+        content: event.description,
+        eventType: event.type,
+        data: event.data
+      });
+    });
+
+    // Add topics
+    sessionRecording.topics.forEach(topic => {
+      allEntries.push({
+        timestamp: topic.timestamp,
+        type: 'topic_identified',
+        source: 'ai',
+        content: topic.topic,
+        context: topic.context
+      });
+    });
+
+    // Sort chronologically
+    allEntries.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    return allEntries;
+  };
+
+  // Generate session analysis
+  const generateSessionAnalysis = () => {
+    const coachWords = sessionRecording.statistics.totalWords.coach;
+    const coacheeWords = sessionRecording.statistics.totalWords.coachee;
+    const totalWords = coachWords + coacheeWords;
+
+    return {
+      duration: {
+        totalSeconds: sessionRecording.metadata.totalDuration,
+        formatted: formatDuration(sessionRecording.metadata.totalDuration)
+      },
+      participation: {
+        coachPercentage: totalWords > 0 ? Math.round((coachWords / totalWords) * 100) : 0,
+        coacheePercentage: totalWords > 0 ? Math.round((coacheeWords / totalWords) * 100) : 0,
+        balance: totalWords > 0 ? (coacheeWords > coachWords ? 'Coachee-led' : coachWords > coacheeWords ? 'Coach-led' : 'Balanced') : 'No data'
+      },
+      interactions: {
+        totalAIInteractions: sessionRecording.aiInteractions.length,
+        questionsGenerated: sessionRecording.statistics.questionsGenerated,
+        topicsDiscussed: sessionRecording.statistics.topicsDiscussed,
+        averageResponseLength: sessionRecording.aiInteractions.length > 0 ? 
+          Math.round(sessionRecording.aiInteractions.reduce((sum, int) => sum + int.response.length, 0) / sessionRecording.aiInteractions.length) : 0
+      },
+      timeline: generateSessionTimeline()
+    };
+  };
+
+  // Generate session timeline
+  const generateSessionTimeline = () => {
+    if (!sessionRecording.startTime) return [];
+
+    const startTime = new Date(sessionRecording.startTime);
+    const timeline = [];
+    const chronological = generateChronologicalTranscription();
+    
+    chronological.forEach(entry => {
+      const entryTime = new Date(entry.timestamp);
+      const minutesFromStart = Math.floor((entryTime - startTime) / 60000);
+      
+      timeline.push({
+        minute: minutesFromStart,
+        timestamp: entry.timestamp,
+        type: entry.type,
+        source: entry.source,
+        preview: entry.content.substring(0, 100) + (entry.content.length > 100 ? '...' : '')
+      });
+    });
+
+    return timeline;
+  };
+
+  // Format duration helper
+  const formatDuration = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
+  };
 
   // Initialize preloaded questions (all of them)
   useEffect(() => {
@@ -412,6 +795,7 @@ export default function CoachingPage() {
     if (!coacheeText) return;
 
     setGeneratingTopic(true);
+    addEventToSession('topic_generation_started', 'AI started generating main topic');
     
     try {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -460,7 +844,12 @@ export default function CoachingPage() {
       }
       
       // Update current topic
-      setCurrentMainTopic(topicResponse.trim());
+      const newTopic = topicResponse.trim();
+      setCurrentMainTopic(newTopic);
+      
+      // Add to session recording
+      addTopicToSession(newTopic, coacheeText.substring(0, 200));
+      addEventToSession('topic_generated', `New main topic identified: ${newTopic}`);
       
       // Clear the temporary buffer
       tempSpeechBuffer.current = { coach: '', coachee: '' };
@@ -468,6 +857,7 @@ export default function CoachingPage() {
     } catch (error) {
       console.error('Error generating main topic:', error);
       showSnackbar('Failed to generate main topic: ' + error.message, 'error');
+      addEventToSession('topic_generation_error', `Error generating topic: ${error.message}`);
     } finally {
       setGeneratingTopic(false);
     }
@@ -553,6 +943,7 @@ export default function CoachingPage() {
 
     try {
       await recognizer.startContinuousRecognitionAsync();
+      addEventToSession('audio_started', `${source === 'coach' ? 'Coach' : 'Coachee'} audio recording started`);
       return recognizer;
     } catch (error) {
       console.error(`Error starting ${source} continuous recognition:`, error);
@@ -618,6 +1009,8 @@ export default function CoachingPage() {
             systemAudioStreamRef.current = null;
           }
         }
+        
+        addEventToSession('audio_stopped', `${source === 'coach' ? 'Coach' : 'Coachee'} audio recording stopped`);
       }
     }
   };
@@ -755,9 +1148,13 @@ export default function CoachingPage() {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
 
+    // Add to session recording
+    addTranscriptionToSession(cleanText, source);
+
     // Start dialogue tracking if not already active
     if (!isDialogueActive) {
       setIsDialogueActive(true);
+      addEventToSession('dialogue_started', 'Active dialogue detected');
     }
     
     // Reset the last activity time
@@ -862,6 +1259,9 @@ export default function CoachingPage() {
     dispatch(addToHistory({ type: 'question', text, timestamp, source, status: 'pending' }));
     dispatch(setAIResponse(''));
 
+    // Add AI processing event to session
+    addEventToSession('ai_processing_started', `AI processing ${source} input: ${text.substring(0, 50)}...`);
+
     try {
       const conversationHistoryForAPI = history
         .filter(e => e.text && (e.type === 'question' || e.type === 'response') && e.status !== 'pending')
@@ -945,12 +1345,18 @@ export default function CoachingPage() {
       const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
 
+      // Add to session recording
+      addAIInteractionToSession(text, streamedResponse, source, suggestedQuestions.length > 0 ? suggestedQuestions : null);
+      addEventToSession('ai_response_completed', `AI response generated for ${source} query`);
+
     } catch (error) {
       console.error("AI request error:", error);
       const errorMessage = `AI request failed: ${error.message || 'Unknown error'}`;
       showSnackbar(errorMessage, 'error');
       dispatch(setAIResponse(`Error: ${errorMessage}`));
       dispatch(addToHistory({ type: 'response', text: `Error: ${errorMessage}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'error' }));
+      
+      addEventToSession('ai_error', `AI error: ${errorMessage}`);
     } finally {
       if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
         finalTranscript.current[source] = '';
@@ -976,6 +1382,7 @@ export default function CoachingPage() {
     }
     
     setGeneratingQuestions(true);
+    addEventToSession('questions_generation_started', `Starting generation of ${questionsToGenerate} coaching questions`);
     
     // Gather recent dialogue context
     const recentDialogue = dialogueBufferRef.current
@@ -1047,12 +1454,16 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         timestamp,
         status: 'completed'
       }));
+
+      // Add to session recording
+      addEventToSession('questions_generated', `Generated ${questions.length} coaching questions`, { questions });
       
       showSnackbar(`Generated ${questions.length} coaching question(s)`, 'success');
       
     } catch (error) {
       console.error('Error generating questions:', error);
       showSnackbar('Failed to generate questions: ' + error.message, 'error');
+      addEventToSession('questions_generation_error', `Error generating questions: ${error.message}`);
     } finally {
       setGeneratingQuestions(false);
     }
@@ -1119,6 +1530,137 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         </Button>
       </DialogActions>
     </Dialog>
+  );
+
+  // Session Recording Card Component
+  const SessionRecordingCard = () => (
+    <Card sx={{ mb: 2 }}>
+      <CardHeader 
+        title="Session Recording"
+        avatar={
+          <Badge 
+            color={isRecording ? "success" : "default"}
+            variant="dot"
+            sx={{
+              '& .MuiBadge-badge': {
+                animation: isRecording ? 'pulse 2s infinite' : 'none'
+              }
+            }}
+          >
+            <HistoryIcon />
+          </Badge>
+        }
+        subheader={isRecording ? `Recording for ${formatDuration(dialogueDuration)}` : 'Not recording'}
+        action={
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title="Export Complete Session">
+              <IconButton 
+                onClick={exportCompleteSession} 
+                disabled={!sessionRecording.sessionId}
+                color="primary"
+              >
+                <DownloadIcon />
+              </IconButton>
+            </Tooltip>
+            <Button
+              variant={isRecording ? "outlined" : "contained"}
+              color={isRecording ? "error" : "success"}
+              onClick={isRecording ? stopSessionRecording : startSessionRecording}
+              startIcon={isRecording ? <FiberManualRecordIcon /> : <FiberManualRecordIcon />}
+              size="small"
+            >
+              {isRecording ? 'Stop' : 'Start'}
+            </Button>
+          </Box>
+        }
+        sx={{ pb: 1 }}
+      />
+      <CardContent>
+        {isRecording && (
+          <>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="primary">
+                  {sessionRecording.statistics.totalWords.coach}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Coach Words
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="secondary">
+                  {sessionRecording.statistics.totalWords.coachee}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Coachee Words
+                </Typography>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h6" color="info.main">
+                  {sessionRecording.statistics.questionsGenerated}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AI Questions
+                </Typography>
+              </Box>
+            </Box>
+            
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                Session Progress
+              </Typography>
+              <LinearProgress 
+                variant="indeterminate" 
+                sx={{ height: 4, borderRadius: 2 }}
+                color="success"
+              />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip 
+                label={`${sessionRecording.events.length} Events`} 
+                size="small" 
+                variant="outlined"
+              />
+              <Chip 
+                label={`${sessionRecording.aiInteractions.length} AI Interactions`} 
+                size="small" 
+                variant="outlined"
+              />
+              <Chip 
+                label={`${sessionRecording.topics.length} Topics`} 
+                size="small" 
+                variant="outlined"
+              />
+            </Box>
+          </>
+        )}
+
+        {!isRecording && sessionRecording.sessionId && (
+          <Box sx={{ textAlign: 'center', py: 2 }}>
+            <SaveIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
+            <Typography variant="h6" color="text.secondary">
+              Session Data Available
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {sessionRecording.statistics.totalWords.coach + sessionRecording.statistics.totalWords.coachee} total words recorded
+            </Typography>
+          </Box>
+        )}
+
+        {!isRecording && !sessionRecording.sessionId && (
+          <Box sx={{ textAlign: 'center', py: 2 }}>
+            <TranscribeIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
+            <Typography variant="h6" color="text.secondary">
+              Ready to Record
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Start recording to capture complete session data
+            </Typography>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
   );
 
   // Main Topic Card Component
@@ -1293,7 +1835,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant - Active Session</title>
+        <title>Executive Coaching Assistant - Enhanced Session Recording</title>
       </Head>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <AppBar position="static" color="default" elevation={1}>
@@ -1314,6 +1856,17 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               color="purple"
               label="Coach"
             />
+            
+            {/* Recording Status */}
+            {isRecording && (
+              <Chip
+                icon={<FiberManualRecordIcon sx={{ animation: 'pulse 2s infinite' }} />}
+                label="Recording"
+                color="error"
+                variant="outlined"
+                sx={{ mr: 2 }}
+              />
+            )}
             
             {/* Dialogue Duration Indicator */}
             {isDialogueActive && (
@@ -1338,6 +1891,9 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           <Grid container spacing={2} sx={{ flexGrow: 1 }}>
             {/* Left Panel - Main Topic & Audio Controls */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {/* Session Recording Card */}
+              <SessionRecordingCard />
+              
               {/* Main Topic Card */}
               <MainTopicCard />
               

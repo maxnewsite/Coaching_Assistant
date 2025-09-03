@@ -1,4 +1,4 @@
-// pages/coaching.js - Complete Executive Coaching Assistant
+// pages/coaching.js - Simplified Executive Coaching Assistant
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -70,6 +70,8 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import SummarizeIcon from '@mui/icons-material/Summarize';
+import DownloadIcon from '@mui/icons-material/Download';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -88,6 +90,30 @@ import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
+
+// Pre-loaded Question Bank
+const QUESTION_BANK = [
+  "What specific outcome are you hoping to achieve?",
+  "How does this align with your core values?",
+  "What would success look like in this situation?",
+  "What's the most important thing for you to focus on right now?",
+  "What options haven't you considered yet?",
+  "What would you do if you knew you couldn't fail?",
+  "What's really important to you about this?",
+  "What would your best self do in this situation?",
+  "What patterns do you notice in your approach?",
+  "What would need to change for this to work?",
+  "How might you approach this differently?",
+  "What's possible that you haven't thought of yet?",
+  "What would make the biggest difference?",
+  "What are you not saying that needs to be said?",
+  "What would you tell a friend in this situation?",
+  "What assumptions are you making?",
+  "What's the next smallest step you could take?",
+  "What would happen if you did nothing?",
+  "What support do you need to move forward?",
+  "What would you regret not trying?"
+];
 
 // Utility function
 function debounce(func, timeout = 100) {
@@ -138,15 +164,16 @@ export default function CoachingPage() {
   const [urgentQuestionsCount, setUrgentQuestionsCount] = useState(2);
   const [generatingQuestions, setGeneratingQuestions] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const [preloadedQuestions, setPreloadedQuestions] = useState([]);
   const [dialogueDuration, setDialogueDuration] = useState(0);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
 
-  // Summary States
-  const [coacheeSummaries, setCoacheeSummaries] = useState([]);
-  const [coachSummaries, setCoachSummaries] = useState([]);
+  // Summary States (simplified)
+  const [currentCoacheeSummary, setCurrentCoacheeSummary] = useState('');
   const [summaryTimer, setSummaryTimer] = useState(0);
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [summaryHistory, setSummaryHistory] = useState([]);
 
   // Session Management States
   const [sessionTopics, setSessionTopics] = useState([]);
@@ -168,6 +195,13 @@ export default function CoachingPage() {
   const lastQuestionTimeRef = useRef(Date.now());
   const dialogueBufferRef = useRef([]);
   const tempSpeechBuffer = useRef({ coach: '', coachee: '' });
+  const systemAudioStreamRef = useRef(null);
+
+  // Initialize preloaded questions
+  useEffect(() => {
+    const shuffled = [...QUESTION_BANK].sort(() => 0.5 - Math.random());
+    setPreloadedQuestions(shuffled.slice(0, 10));
+  }, []);
 
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -177,6 +211,28 @@ export default function CoachingPage() {
   }, []);
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
+
+  // Export Summary History
+  const exportSummaryHistory = () => {
+    const data = {
+      sessionDate: new Date().toISOString(),
+      currentSummary: currentCoacheeSummary,
+      summaryHistory: summaryHistory,
+      sessionTopics: sessionTopics
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `coaching-session-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showSnackbar('Summary history exported successfully', 'success');
+  };
 
   // Settings Management
   const handleSettingsSaved = () => {
@@ -281,13 +337,13 @@ export default function CoachingPage() {
     };
   }, [isDialogueActive, appConfig]);
 
-  // Summary Timer Management (60 seconds)
+  // Summary Timer Management (2 minutes = 120 seconds)
   useEffect(() => {
     if (isDialogueActive) {
       summaryTimerRef.current = setInterval(() => {
         setSummaryTimer(prev => {
           const newTimer = prev + 1;
-          if (newTimer >= 60) { // Every 60 seconds
+          if (newTimer >= 120) { // Every 2 minutes
             generateSummary();
             return 0; // Reset timer
           }
@@ -311,93 +367,63 @@ export default function CoachingPage() {
   useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
   useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
 
-  // Summary Generation Function
+  // Summary Generation Function (2 minutes)
   const generateSummary = async () => {
     if (!aiClient || isAILoading || generatingSummary) return;
     
     const coacheeText = tempSpeechBuffer.current.coachee.trim();
-    const coachText = tempSpeechBuffer.current.coach.trim();
     
-    if (!coacheeText && !coachText) return;
+    if (!coacheeText) return;
 
     setGeneratingSummary(true);
     
     try {
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
-      if (coacheeText) {
-        // Generate coachee summary
-        const prompt = `Summarize in 1-2 sentences what the coachee discussed in the last minute: "${coacheeText}"`;
-        
-        let summaryResponse = '';
-        if (aiClient.type === 'anthropic') {
-          const response = await aiClient.client.messages.create({
-            model: appConfig.aiModel,
-            max_tokens: 100,
-            temperature: 0.3,
-            system: "You are summarizing coaching session content. Be concise and focus on key points.",
-            messages: [{ role: 'user', content: prompt }]
-          });
-          summaryResponse = response.content[0].text;
-        } else if (aiClient.type === 'openai') {
-          const response = await aiClient.client.chat.completions.create({
-            model: appConfig.aiModel,
-            messages: [
-              { role: 'system', content: "You are summarizing coaching session content. Be concise and focus on key points." },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.3,
-            max_tokens: 100
-          });
-          summaryResponse = response.choices[0].message.content;
-        } else if (aiClient.type === 'gemini') {
-          const model = aiClient.client.getGenerativeModel({
-            model: appConfig.aiModel,
-            generationConfig: { temperature: 0.3, maxOutputTokens: 100 }
-          });
-          const result = await model.generateContent(prompt);
-          summaryResponse = result.response.text();
-        }
-        
-        setCoacheeSummaries(prev => [{ text: summaryResponse, timestamp, id: Date.now() }, ...prev]);
+      // Generate coachee summary
+      const prompt = `Summarize in 1-2 sentences what the coachee discussed in the last 2 minutes: "${coacheeText}"`;
+      
+      let summaryResponse = '';
+      if (aiClient.type === 'anthropic') {
+        const response = await aiClient.client.messages.create({
+          model: appConfig.aiModel,
+          max_tokens: 100,
+          temperature: 0.3,
+          system: "You are summarizing coaching session content. Be concise and focus on key points.",
+          messages: [{ role: 'user', content: prompt }]
+        });
+        summaryResponse = response.content[0].text;
+      } else if (aiClient.type === 'openai') {
+        const response = await aiClient.client.chat.completions.create({
+          model: appConfig.aiModel,
+          messages: [
+            { role: 'system', content: "You are summarizing coaching session content. Be concise and focus on key points." },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 100
+        });
+        summaryResponse = response.choices[0].message.content;
+      } else if (aiClient.type === 'gemini') {
+        const model = aiClient.client.getGenerativeModel({
+          model: appConfig.aiModel,
+          generationConfig: { temperature: 0.3, maxOutputTokens: 100 }
+        });
+        const result = await model.generateContent(prompt);
+        summaryResponse = result.response.text();
       }
       
-      if (coachText) {
-        // Generate coach summary
-        const prompt = `Summarize in 1-2 sentences what the coach discussed in the last minute: "${coachText}"`;
-        
-        let summaryResponse = '';
-        if (aiClient.type === 'anthropic') {
-          const response = await aiClient.client.messages.create({
-            model: appConfig.aiModel,
-            max_tokens: 100,
-            temperature: 0.3,
-            system: "You are summarizing coaching session content. Be concise and focus on key points.",
-            messages: [{ role: 'user', content: prompt }]
-          });
-          summaryResponse = response.content[0].text;
-        } else if (aiClient.type === 'openai') {
-          const response = await aiClient.client.chat.completions.create({
-            model: appConfig.aiModel,
-            messages: [
-              { role: 'system', content: "You are summarizing coaching session content. Be concise and focus on key points." },
-              { role: 'user', content: prompt }
-            ],
-            temperature: 0.3,
-            max_tokens: 100
-          });
-          summaryResponse = response.choices[0].message.content;
-        } else if (aiClient.type === 'gemini') {
-          const model = aiClient.client.getGenerativeModel({
-            model: appConfig.aiModel,
-            generationConfig: { temperature: 0.3, maxOutputTokens: 100 }
-          });
-          const result = await model.generateContent(prompt);
-          summaryResponse = result.response.text();
-        }
-        
-        setCoachSummaries(prev => [{ text: summaryResponse, timestamp, id: Date.now() }, ...prev]);
+      // Store previous summary in history before updating
+      if (currentCoacheeSummary) {
+        setSummaryHistory(prev => [{ 
+          text: currentCoacheeSummary, 
+          timestamp: new Date(Date.now() - 120000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
+          id: Date.now() - 120000 
+        }, ...prev]);
       }
+      
+      // Update current summary
+      setCurrentCoacheeSummary(summaryResponse);
       
       // Clear the temporary buffer
       tempSpeechBuffer.current = { coach: '', coachee: '' };
@@ -510,6 +536,10 @@ export default function CoachingPage() {
         } else if (source === 'system') {
           setIsSystemAudioActive(false);
           setCoacheeRecognizer(null);
+          if (systemAudioStreamRef.current) {
+            systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
+            systemAudioStreamRef.current = null;
+          }
         }
       }
     }
@@ -543,6 +573,9 @@ export default function CoachingPage() {
         return;
       }
 
+      // Store the stream reference for proper cleanup
+      systemAudioStreamRef.current = mediaStream;
+
       if (coacheeRecognizer) {
         await stopRecording('system');
       }
@@ -560,6 +593,7 @@ export default function CoachingPage() {
         });
       } else {
         mediaStream.getTracks().forEach(track => track.stop());
+        systemAudioStreamRef.current = null;
       }
     } catch (error) {
       console.error('System audio capture error:', error);
@@ -573,6 +607,7 @@ export default function CoachingPage() {
         showSnackbar(`Failed to start system audio capture: ${error.message || 'Unknown error'}`, 'error');
       }
       setIsSystemAudioActive(false);
+      systemAudioStreamRef.current = null;
     }
   };
 
@@ -966,27 +1001,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     }
   };
 
-  // Question History Management
-  const handleCombineAndSubmit = () => {
-    if (selectedQuestions.length === 0) {
-      showSnackbar('No questions selected to combine.', 'warning');
-      return;
-    }
-    const questionHistory = history.filter(e => e.type === 'question').slice().reverse();
-    const questionTexts = selectedQuestions.map(selectedIndexInReversedArray => {
-      return questionHistory[selectedIndexInReversedArray]?.text;
-    }).filter(text => text);
-
-    if (questionTexts.length === 0) {
-      showSnackbar('Could not retrieve selected question texts.', 'warning');
-      return;
-    }
-
-    const combinedText = questionTexts.join('\n\n---\n\n');
-    askAI(combinedText, 'combined');
-    setSelectedQuestions([]);
-  };
-
   // Session Topic Management
   const addSessionTopic = () => {
     if (currentTopic.trim() && !sessionTopics.includes(currentTopic.trim())) {
@@ -997,145 +1011,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
   const removeSessionTopic = (topicToRemove) => {
     setSessionTopics(sessionTopics.filter(topic => topic !== topicToRemove));
-  };
-
-  // Response Formatting
-  const formatAndDisplayResponse = useCallback((response) => {
-    if (!response) return null;
-    return (
-      <ReactMarkdown
-        components={{
-          code({ node, inline, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '');
-            return !inline && match ? (
-              <Box sx={{
-                my: 1,
-                position: 'relative',
-                '& pre': {
-                  borderRadius: '4px',
-                  padding: '12px !important',
-                  fontSize: '0.875rem',
-                  overflowX: 'auto',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                }
-              }}>
-                <pre><code className={className} {...props} dangerouslySetInnerHTML={{ __html: hljs.highlight(String(children).replace(/\n$/, ''), { language: match[1], ignoreIllegals: true }).value }} /></pre>
-              </Box>
-            ) : (
-              <code
-                className={className}
-                {...props}
-                style={{
-                  backgroundColor: 'rgba(0,0,0,0.05)',
-                  padding: '2px 4px',
-                  borderRadius: '4px',
-                  fontFamily: 'monospace',
-                  fontSize: '0.875rem',
-                  wordBreak: 'break-all'
-                }}
-              >
-                {children}
-              </code>
-            );
-          },
-          p: ({ node, ...props }) => <Typography paragraph {...props} sx={{ mb: 1, fontSize: '0.95rem', wordBreak: 'break-word' }} />,
-          strong: ({ node, ...props }) => <Typography component="strong" fontWeight="bold" {...props} />,
-          em: ({ node, ...props }) => <Typography component="em" fontStyle="italic" {...props} />,
-          ul: ({ node, ...props }) => <Typography component="ul" sx={{ pl: 2.5, mb: 1, fontSize: '0.95rem', wordBreak: 'break-word' }} {...props} />,
-          ol: ({ node, ...props }) => <Typography component="ol" sx={{ pl: 2.5, mb: 1, fontSize: '0.95rem', wordBreak: 'break-word' }} {...props} />,
-          li: ({ node, ...props }) => <Typography component="li" sx={{ mb: 0.25, fontSize: '0.95rem', wordBreak: 'break-word' }} {...props} />,
-        }}
-      >
-        {response}
-      </ReactMarkdown>
-    );
-  }, []);
-
-  // History Rendering
-  const renderHistoryItem = (item, index) => {
-    if (item.type !== 'response') return null;
-    const Icon = SmartToyIcon;
-    const title = 'Coaching AI';
-    const avatarBgColor = theme.palette.secondary.light;
-
-    return (
-      <ListItem key={`response-${index}`} sx={{ alignItems: 'flex-start', px: 0, py: 1.5 }}>
-        <Avatar sx={{ bgcolor: avatarBgColor, mr: 2, mt: 0.5 }}>
-          <Icon sx={{ color: theme.palette.getContrastText(avatarBgColor) }} />
-        </Avatar>
-        <Paper variant="outlined" sx={{ p: 1.5, flexGrow: 1, bgcolor: theme.palette.background.default, borderColor: theme.palette.divider, overflowX: 'auto' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-            <Typography variant="subtitle2" fontWeight="bold">{title}</Typography>
-            <Typography variant="caption" color="text.secondary">{item.timestamp}</Typography>
-          </Box>
-          {formatAndDisplayResponse(item.text)}
-        </Paper>
-      </ListItem>
-    );
-  };
-
-  const renderQuestionHistoryItem = (item, index) => {
-    const Icon = item.source === 'coach' ? PersonIcon : RecordVoiceOverIcon;
-    const title = item.source === 'coach' ? 'Coach' : 'Coachee';
-    const avatarBgColor = item.source === 'coach' ? theme.palette.primary.light : theme.palette.success.light;
-
-    return (
-      <ListItem
-        key={`question-hist-${index}`}
-        secondaryAction={
-          <Checkbox
-            edge="end"
-            checked={selectedQuestions.includes(index)}
-            onChange={() => {
-              setSelectedQuestions(prev =>
-                prev.includes(index) ? prev.filter(x => x !== index) : [...prev, index]
-              );
-            }}
-            color="secondary"
-            size="small"
-          />
-        }
-        disablePadding
-        sx={{ py: 0.5, display: 'flex', alignItems: 'center' }}
-      >
-        <Avatar sx={{ bgcolor: avatarBgColor, mr: 1.5, width: 32, height: 32, fontSize: '1rem' }}>
-          <Icon fontSize="small" />
-        </Avatar>
-        <ListItemText
-          primary={
-            <Typography variant="body2" noWrap sx={{ fontWeight: selectedQuestions.includes(index) ? 'bold' : 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {item.text}
-            </Typography>
-          }
-          secondary={`${title} - ${item.timestamp}`}
-        />
-      </ListItem>
-    );
-  };
-
-  // Sort Order Management
-  const handleSortOrderToggle = () => {
-    setAiResponseSortOrder(prev => prev === 'newestAtBottom' ? 'newestAtTop' : 'newestAtBottom');
-  };
-
-  const getAiResponsesToDisplay = () => {
-    let responses = history.filter(item => item.type === 'response').slice();
-    const currentStreamingText = aiResponseFromStore;
-
-    if (isProcessing && currentStreamingText && currentStreamingText.trim() !== '') {
-      responses.push({ text: currentStreamingText, timestamp: 'Streaming...', type: 'current_streaming' });
-    }
-
-    if (aiResponseSortOrder === 'newestAtTop') {
-      return responses.reverse();
-    }
-    return responses;
-  };
-
-  // PiP Window Management (simplified for coaching)
-  const togglePipWindow = () => {
-    showSnackbar('PiP feature coming soon for coaching sessions', 'info');
   };
 
   // Component Definitions
@@ -1189,65 +1064,64 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </Dialog>
   );
 
-  // Summary Card Component
-  const SummaryCard = ({ summaries, title, icon, color = 'primary' }) => (
+  // Summary Card Component (simplified)
+  const SimplifiedSummaryCard = () => (
     <Card sx={{ mb: 2 }}>
       <CardHeader 
-        title={title}
-        avatar={icon}
-        subheader={`Next summary in ${60 - summaryTimer}s`}
+        title="Coachee Summary"
+        avatar={<SummarizeIcon />}
+        subheader={`Next summary in ${Math.floor((120 - summaryTimer) / 60)}:${((120 - summaryTimer) % 60).toString().padStart(2, '0')}`}
+        action={
+          <Tooltip title="Export Summary History">
+            <IconButton onClick={exportSummaryHistory} disabled={summaryHistory.length === 0}>
+              <DownloadIcon />
+            </IconButton>
+          </Tooltip>
+        }
         sx={{ pb: 1 }}
       />
       <CardContent>
-        {summaries.length > 0 ? (
-          <Box sx={{ maxHeight: 300, overflowY: 'auto' }}>
-            {summaries.map((summary, index) => (
-              <Grow
-                in={true}
-                timeout={500}
-                key={summary.id}
-              >
-                <Paper 
-                  sx={{ 
-                    p: 2, 
-                    mb: 1,
-                    transform: index === 0 ? 'scale(1)' : `scale(${Math.max(0.85, 1 - index * 0.1)})`,
-                    transformOrigin: 'top center',
-                    opacity: Math.max(0.7, 1 - index * 0.15),
-                    bgcolor: index === 0 ? `${color}.50` : 'background.paper',
-                    border: index === 0 ? `2px solid ${theme.palette[color].main}` : '1px solid',
-                    borderColor: index === 0 ? `${color}.main` : 'divider'
-                  }}
-                  elevation={index === 0 ? 3 : 1}
-                >
-                  <Typography 
-                    variant={index === 0 ? "body1" : "body2"} 
-                    sx={{ 
-                      fontWeight: index === 0 ? 'bold' : 'normal',
-                      mb: 0.5
-                    }}
-                  >
-                    {summary.text}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {summary.timestamp}
-                  </Typography>
-                </Paper>
-              </Grow>
-            ))}
-          </Box>
+        {currentCoacheeSummary ? (
+          <Paper 
+            sx={{ 
+              p: 2,
+              bgcolor: 'success.50',
+              border: `2px solid ${theme.palette.success.main}`,
+              borderColor: 'success.main'
+            }}
+            elevation={3}
+          >
+            <Typography 
+              variant="body1" 
+              sx={{ 
+                fontWeight: 'bold',
+                mb: 0.5
+              }}
+            >
+              {currentCoacheeSummary}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Typography>
+          </Paper>
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-            {generatingSummary ? 'Generating summary...' : 'No summaries yet. Summaries appear every 60 seconds.'}
+            {generatingSummary ? 'Generating summary...' : 'Summary will appear every 2 minutes during active dialogue.'}
           </Typography>
         )}
         
         <LinearProgress 
           variant="determinate" 
-          value={(summaryTimer / 60) * 100}
+          value={(summaryTimer / 120) * 100}
           sx={{ mt: 2, height: 6, borderRadius: 3 }}
-          color={color}
+          color="success"
         />
+        
+        {summaryHistory.length > 0 && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            {summaryHistory.length} previous summary(ies) in history
+          </Typography>
+        )}
       </CardContent>
     </Card>
   );
@@ -1322,7 +1196,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
         <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
           <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-            {/* Left Panel - Audio Controls & Summaries */}
+            {/* Left Panel - Audio Controls & Summary */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Card>
                 <CardHeader title="Coachee Audio" avatar={<RecordVoiceOverIcon />} sx={{ pb: 1 }} />
@@ -1333,31 +1207,24 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     sx={{ mb: 1 }}
                   />
                   
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
-                    <Button
-                      onClick={startSystemAudioRecognition}
-                      variant="contained"
-                      color={isSystemAudioActive ? 'error' : 'primary'}
-                      startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
-                      fullWidth
-                      size="large"
-                    >
-                      {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
-                    </Button>
-                    <Typography variant="caption" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>
-                      {isSystemAudioActive ? 'Recording system audio...' : 'Select Chrome Tab → Check "Share audio"'}
-                    </Typography>
-                  </Box>
+                  <Button
+                    onClick={startSystemAudioRecognition}
+                    variant="contained"
+                    color={isSystemAudioActive ? 'error' : 'primary'}
+                    startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
+                    fullWidth
+                    size="large"
+                  >
+                    {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
+                  </Button>
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', textAlign: 'center' }}>
+                    {isSystemAudioActive ? 'Recording system audio...' : 'Select Chrome Tab → Check "Share audio"'}
+                  </Typography>
                 </CardContent>
               </Card>
               
-              {/* Coachee Summary */}
-              <SummaryCard 
-                summaries={coacheeSummaries}
-                title="Coachee Summary"
-                icon={<SummarizeIcon />}
-                color="success"
-              />
+              {/* Simplified Coachee Summary */}
+              <SimplifiedSummaryCard />
               
               <Card>
                 <CardHeader title="Coach Audio" avatar={<PersonIcon />} sx={{ pb: 1 }} />
@@ -1378,17 +1245,9 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                   </Button>
                 </CardContent>
               </Card>
-
-              {/* Coach Summary */}
-              <SummaryCard 
-                summaries={coachSummaries}
-                title="Coach Summary"
-                icon={<SummarizeIcon />}
-                color="primary"
-              />
             </Grid>
 
-            {/* Center Panel - Suggested Questions (Largest) */}
+            {/* Center Panel - Coaching Questions (Largest) */}
             <Grid item xs={12} md={6} sx={{ display: 'flex', flexDirection: 'column' }}>
               <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <CardHeader 
@@ -1527,7 +1386,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               </Card>
             </Grid>
 
-            {/* Right Panel - AI Insights & Session Topics */}
+            {/* Right Panel - Question Bank & Session Topics */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column' }}>
               <Card sx={{ mb: 2 }}>
                 <CardHeader
@@ -1568,33 +1427,42 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                 </CardContent>
               </Card>
               
+              {/* Question Bank (instead of AI Insights) */}
               <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <CardHeader
-                  title="AI Coaching Insights"
-                  avatar={<SmartToyIcon />}
-                  action={
-                    <FormControlLabel
-                      control={<Switch checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} color="primary" />}
-                      label="Auto Scroll"
-                      sx={{ ml: 1 }}
-                    />
-                  }
+                  title="Question Bank"
+                  avatar={<MenuBookIcon />}
+                  subheader="Pre-loaded coaching questions"
                   sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
                 />
                 <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
                   <ScrollToBottom
                     className="scroll-to-bottom"
-                    mode={autoScroll ? "bottom" : undefined}
                     followButtonClassName="hidden-follow-button"
                   >
-                    <List sx={{ px: 2, py: 1 }}>
-                      {getAiResponsesToDisplay().map(renderHistoryItem)}
-                      {isProcessing && (
-                        <ListItem sx={{ justifyContent: 'center', py: 2 }}>
-                          <CircularProgress size={24} />
-                          <Typography variant="caption" sx={{ ml: 1 }}>AI is analyzing...</Typography>
+                    <List sx={{ px: 1, py: 1 }} dense>
+                      {preloadedQuestions.map((question, index) => (
+                        <ListItem 
+                          key={index}
+                          sx={{ 
+                            cursor: 'pointer',
+                            borderRadius: 1,
+                            mb: 0.5,
+                            '&:hover': {
+                              bgcolor: 'action.hover'
+                            }
+                          }}
+                          onClick={() => askAI(question, 'preloaded')}
+                        >
+                          <ListItemText
+                            primary={
+                              <Typography variant="body2" sx={{ fontWeight: 'normal' }}>
+                                {question}
+                              </Typography>
+                            }
+                          />
                         </ListItem>
-                      )}
+                      ))}
                     </List>
                   </ScrollToBottom>
                 </CardContent>

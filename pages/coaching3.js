@@ -1,4 +1,4 @@
-// pages/coaching3.js - Enhanced Executive Coaching Assistant with Complete Session Recording (Fixed)
+// pages/coaching3.js - Simplified Executive Coaching Assistant (Fixed)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -14,7 +14,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  Checkbox,
   Chip,
   CircularProgress,
   Container,
@@ -22,10 +21,8 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   Fab,
   FormControl,
-  FormControlLabel,
   Grid,
   IconButton,
   InputLabel,
@@ -37,59 +34,43 @@ import {
   Paper,
   Select,
   Snackbar,
-  Switch,
   TextField,
   Toolbar,
   Tooltip,
   Typography,
   useTheme,
-  Fade,
   Grow,
   Badge
 } from '@mui/material';
 
 // MUI Icons
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
-import HearingIcon from '@mui/icons-material/Hearing';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import LiveHelpIcon from '@mui/icons-material/LiveHelp';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
-import PersonIcon from '@mui/icons-material/Person';
-import PictureInPictureAltIcon from '@mui/icons-material/PictureInPictureAlt';
-import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import ScreenShareIcon from '@mui/icons-material/ScreenShare';
-import SendIcon from '@mui/icons-material/Send';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import StopScreenShareIcon from '@mui/icons-material/StopScreenShare';
 import TimerIcon from '@mui/icons-material/Timer';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import SummarizeIcon from '@mui/icons-material/Summarize';
 import DownloadIcon from '@mui/icons-material/Download';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
 import TopicIcon from '@mui/icons-material/Topic';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import WarningIcon from '@mui/icons-material/Warning';
 import SignalWifiStatusbar4BarIcon from '@mui/icons-material/SignalWifiStatusbar4Bar';
-import SaveIcon from '@mui/icons-material/Save';
 import HistoryIcon from '@mui/icons-material/History';
+import SaveIcon from '@mui/icons-material/Save';
 import TranscribeIcon from '@mui/icons-material/Transcribe';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import hljs from 'highlight.js';
-import 'highlight.js/styles/atom-one-dark.css';
 import throttle from 'lodash.throttle';
 import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
 import OpenAI from 'openai';
-import ReactMarkdown from 'react-markdown';
 import ScrollToBottom from 'react-scroll-to-bottom';
 
 // Local Imports
@@ -99,17 +80,6 @@ import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
-
-// Utility function
-function debounce(func, timeout = 100) {
-  let timer;
-  return (...args) => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      func.apply(this, args);
-    }, timeout);
-  };
-}
 
 export default function CoachingPage() {
   const dispatch = useDispatch();
@@ -126,9 +96,6 @@ export default function CoachingPage() {
   const [isCoachMicActive, setIsCoachMicActive] = useState(false);
   const [isCoacheeMicActive, setIsCoacheeMicActive] = useState(false);
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
-  const [coachTranscription, setCoachTranscription] = useState('');
-  const [coacheeAutoMode, setCoacheeAutoMode] = useState(appConfig.coacheeAutoMode !== undefined ? appConfig.coacheeAutoMode : true);
-  const [isManualMode, setIsManualMode] = useState(appConfig.isManualMode !== undefined ? appConfig.isManualMode : false);
 
   // AI & Processing States
   const [aiClient, setAiClient] = useState(null);
@@ -140,9 +107,6 @@ export default function CoachingPage() {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [aiResponseSortOrder, setAiResponseSortOrder] = useState('newestAtBottom');
-  const [isPipWindowActive, setIsPipWindowActive] = useState(false);
 
   // Question Generation States
   const [urgentQuestionsDialog, setUrgentQuestionsDialog] = useState(false);
@@ -151,420 +115,38 @@ export default function CoachingPage() {
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
   const [dialogueDuration, setDialogueDuration] = useState(0);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
-  const [selectedQuestions, setSelectedQuestions] = useState([]);
 
-  // Summary States (Main Topic focused)
+  // Current Topic States
   const [currentMainTopic, setCurrentMainTopic] = useState('');
   const [summaryTimer, setSummaryTimer] = useState(0);
   const [generatingTopic, setGeneratingTopic] = useState(false);
-  const [topicHistory, setTopicHistory] = useState([]);
 
-  // Transcription Feedback States
-  const [coachTranscriptionStatus, setCoachTranscriptionStatus] = useState('idle'); // idle, active, error
-  const [coacheeTranscriptionStatus, setCoacheeTranscriptionStatus] = useState('idle');
-  const [lastCoachActivity, setLastCoachActivity] = useState(null);
-  const [lastCoacheeActivity, setLastCoacheeActivity] = useState(null);
-
-  // Session Management States
-  const [sessionTopics, setSessionTopics] = useState([]);
-  const [currentTopic, setCurrentTopic] = useState('');
-
-  // Enhanced Session Recording States
+  // Simplified Session Recording States
   const [sessionRecording, setSessionRecording] = useState({
     sessionId: null,
     startTime: null,
     endTime: null,
-    metadata: {
-      coachName: '',
-      coacheeName: '',
-      sessionType: 'executive_coaching',
-      language: 'en',
-      totalDuration: 0
-    },
-    transcripts: {
-      coach: [],
-      coachee: []
-    },
-    events: [],
-    aiInteractions: [],
-    topics: [],
-    summaries: [],
-    statistics: {
-      totalWords: { coach: 0, coachee: 0 },
-      totalSpeakingTime: { coach: 0, coachee: 0 },
-      questionsGenerated: 0,
-      topicsDiscussed: 0
-    }
+    duration: 0,
+    language: 'en',
+    conversation: [], // Simplified: just chronological conversation
+    aiQuestions: [], // Only AI-generated coaching questions
+    topics: []
   });
   const [isRecording, setIsRecording] = useState(false);
-  const [sessionStartTime, setSessionStartTime] = useState(null);
+
+  // Transcription Status
+  const [coachTranscriptionStatus, setCoachTranscriptionStatus] = useState('idle');
+  const [coacheeTranscriptionStatus, setCoacheeTranscriptionStatus] = useState('idle');
+  const [lastCoachActivity, setLastCoachActivity] = useState(null);
+  const [lastCoacheeActivity, setLastCoacheeActivity] = useState(null);
 
   // Refs
-  const pipWindowRef = useRef(null);
-  const documentPipWindowRef = useRef(null);
-  const documentPipIframeRef = useRef(null);
-  const coachInterimTranscription = useRef('');
-  const coacheeInterimTranscription = useRef('');
-  const silenceTimer = useRef(null);
-  const finalTranscript = useRef({ coach: '', coachee: '' });
-  const isManualModeRef = useRef(isManualMode);
-  const coacheeAutoModeRef = useRef(coacheeAutoMode);
-  const throttledDispatchSetAIResponseRef = useRef(null);
   const dialogueTimerRef = useRef(null);
   const summaryTimerRef = useRef(null);
-  const lastQuestionTimeRef = useRef(Date.now());
   const dialogueBufferRef = useRef([]);
-  const tempSpeechBuffer = useRef({ coach: '', coachee: '' });
   const systemAudioStreamRef = useRef(null);
-  const sessionRecordingRef = useRef(sessionRecording);
-
-  // Update session recording ref when state changes
-  useEffect(() => {
-    sessionRecordingRef.current = sessionRecording;
-  }, [sessionRecording]);
-
-  // Initialize session recording
-  const startSessionRecording = () => {
-    const startTime = new Date();
-    const sessionId = `coaching_${startTime.toISOString().replace(/[:.]/g, '_')}`;
-    
-    const newSessionRecording = {
-      sessionId,
-      startTime: startTime.toISOString(),
-      endTime: null,
-      metadata: {
-        coachName: appConfig.coachName || 'Coach',
-        coacheeName: appConfig.coacheeName || 'Coachee',
-        sessionType: 'executive_coaching',
-        language: appConfig.azureLanguage || 'en-US',
-        totalDuration: 0
-      },
-      transcripts: {
-        coach: [],
-        coachee: []
-      },
-      events: [{
-        type: 'session_started',
-        timestamp: startTime.toISOString(),
-        description: 'Coaching session recording started'
-      }],
-      aiInteractions: [],
-      topics: [],
-      summaries: [],
-      statistics: {
-        totalWords: { coach: 0, coachee: 0 },
-        totalSpeakingTime: { coach: 0, coachee: 0 },
-        questionsGenerated: 0,
-        topicsDiscussed: 0
-      }
-    };
-
-    setSessionRecording(newSessionRecording);
-    setIsRecording(true);
-    setSessionStartTime(startTime);
-    showSnackbar('Session recording started', 'success');
-  };
-
-  // Stop session recording
-  const stopSessionRecording = () => {
-    if (!isRecording) return;
-
-    const endTime = new Date();
-    const updatedRecording = {
-      ...sessionRecording,
-      endTime: endTime.toISOString(),
-      metadata: {
-        ...sessionRecording.metadata,
-        totalDuration: Math.floor((endTime - new Date(sessionRecording.startTime)) / 1000)
-      },
-      events: [
-        ...sessionRecording.events,
-        {
-          type: 'session_ended',
-          timestamp: endTime.toISOString(),
-          description: 'Coaching session recording stopped'
-        }
-      ]
-    };
-
-    setSessionRecording(updatedRecording);
-    setIsRecording(false);
-    showSnackbar('Session recording stopped', 'info');
-  };
-
-  // Add transcription to session recording
-  const addTranscriptionToSession = useCallback((text, source, timestamp = null) => {
-    if (!isRecording) return;
-
-    const time = timestamp || new Date().toISOString();
-    const words = text.trim().split(/\s+/).length;
-
-    setSessionRecording(prev => {
-      const updated = {
-        ...prev,
-        transcripts: {
-          ...prev.transcripts,
-          [source]: [
-            ...prev.transcripts[source],
-            {
-              text: text.trim(),
-              timestamp: time,
-              wordCount: words,
-              duration: null // Could be calculated if needed
-            }
-          ]
-        },
-        statistics: {
-          ...prev.statistics,
-          totalWords: {
-            ...prev.statistics.totalWords,
-            [source]: prev.statistics.totalWords[source] + words
-          }
-        }
-      };
-      return updated;
-    });
-  }, [isRecording]);
-
-  // Add event to session recording
-  const addEventToSession = useCallback((type, description, data = null) => {
-    if (!isRecording) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      events: [
-        ...prev.events,
-        {
-          type,
-          timestamp: new Date().toISOString(),
-          description,
-          data
-        }
-      ]
-    }));
-  }, [isRecording]);
-
-  // Add AI interaction to session recording
-  const addAIInteractionToSession = useCallback((question, response, source, questionsGenerated = null) => {
-    if (!isRecording) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      aiInteractions: [
-        ...prev.aiInteractions,
-        {
-          timestamp: new Date().toISOString(),
-          question: question.trim(),
-          response: response.trim(),
-          source,
-          questionsGenerated,
-          questionSource: source === 'suggested' ? 'AI Generated' : source === 'preloaded' ? 'Question Bank' : 'Manual Input'
-        }
-      ],
-      statistics: {
-        ...prev.statistics,
-        questionsGenerated: questionsGenerated ? prev.statistics.questionsGenerated + questionsGenerated.length : prev.statistics.questionsGenerated
-      }
-    }));
-  }, [isRecording]);
-
-  // Add topic to session recording
-  const addTopicToSession = useCallback((topic, context = '') => {
-    if (!isRecording) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      topics: [
-        ...prev.topics,
-        {
-          topic: topic.trim(),
-          timestamp: new Date().toISOString(),
-          context: context.trim(),
-          duration: null
-        }
-      ],
-      statistics: {
-        ...prev.statistics,
-        topicsDiscussed: prev.statistics.topicsDiscussed + 1
-      }
-    }));
-  }, [isRecording]);
-
-  // Export complete session data
-  const exportCompleteSession = () => {
-    if (!sessionRecording.sessionId) {
-      showSnackbar('No session to export', 'warning');
-      return;
-    }
-
-    // Create comprehensive session export
-    const exportData = {
-      ...sessionRecording,
-      exportInfo: {
-        exportedAt: new Date().toISOString(),
-        exportVersion: '2.0',
-        appVersion: '1.0.0'
-      },
-      fullTranscription: {
-        chronological: generateChronologicalTranscription(),
-        separated: {
-          coach: sessionRecording.transcripts.coach.map(t => t.text).join('\n\n'),
-          coachee: sessionRecording.transcripts.coachee.map(t => t.text).join('\n\n')
-        }
-      },
-      analysisData: generateSessionAnalysis()
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${sessionRecording.sessionId}_complete_session.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    showSnackbar('Complete session exported successfully', 'success');
-  };
-
-  // Generate chronological transcription
-  const generateChronologicalTranscription = () => {
-    const allEntries = [];
-
-    // Add transcripts
-    sessionRecording.transcripts.coach.forEach(entry => {
-      allEntries.push({
-        timestamp: entry.timestamp,
-        type: 'transcription',
-        source: 'coach',
-        content: entry.text,
-        wordCount: entry.wordCount
-      });
-    });
-
-    sessionRecording.transcripts.coachee.forEach(entry => {
-      allEntries.push({
-        timestamp: entry.timestamp,
-        type: 'transcription',
-        source: 'coachee',
-        content: entry.text,
-        wordCount: entry.wordCount
-      });
-    });
-
-    // Add AI interactions
-    sessionRecording.aiInteractions.forEach(interaction => {
-      allEntries.push({
-        timestamp: interaction.timestamp,
-        type: 'ai_question',
-        source: 'ai',
-        content: interaction.question,
-        questionSource: interaction.questionSource
-      });
-      
-      allEntries.push({
-        timestamp: interaction.timestamp,
-        type: 'ai_response',
-        source: 'ai',
-        content: interaction.response
-      });
-    });
-
-    // Add events
-    sessionRecording.events.forEach(event => {
-      allEntries.push({
-        timestamp: event.timestamp,
-        type: 'event',
-        source: 'system',
-        content: event.description,
-        eventType: event.type,
-        data: event.data
-      });
-    });
-
-    // Add topics
-    sessionRecording.topics.forEach(topic => {
-      allEntries.push({
-        timestamp: topic.timestamp,
-        type: 'topic_identified',
-        source: 'ai',
-        content: topic.topic,
-        context: topic.context
-      });
-    });
-
-    // Sort chronologically
-    allEntries.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-    return allEntries;
-  };
-
-  // Generate session analysis
-  const generateSessionAnalysis = () => {
-    const coachWords = sessionRecording.statistics.totalWords.coach;
-    const coacheeWords = sessionRecording.statistics.totalWords.coachee;
-    const totalWords = coachWords + coacheeWords;
-
-    return {
-      duration: {
-        totalSeconds: sessionRecording.metadata.totalDuration,
-        formatted: formatDuration(sessionRecording.metadata.totalDuration)
-      },
-      participation: {
-        coachPercentage: totalWords > 0 ? Math.round((coachWords / totalWords) * 100) : 0,
-        coacheePercentage: totalWords > 0 ? Math.round((coacheeWords / totalWords) * 100) : 0,
-        balance: totalWords > 0 ? (coacheeWords > coachWords ? 'Coachee-led' : coachWords > coacheeWords ? 'Coach-led' : 'Balanced') : 'No data'
-      },
-      interactions: {
-        totalAIInteractions: sessionRecording.aiInteractions.length,
-        questionsGenerated: sessionRecording.statistics.questionsGenerated,
-        topicsDiscussed: sessionRecording.statistics.topicsDiscussed,
-        averageResponseLength: sessionRecording.aiInteractions.length > 0 ? 
-          Math.round(sessionRecording.aiInteractions.reduce((sum, int) => sum + int.response.length, 0) / sessionRecording.aiInteractions.length) : 0
-      },
-      timeline: generateSessionTimeline()
-    };
-  };
-
-  // Generate session timeline
-  const generateSessionTimeline = () => {
-    if (!sessionRecording.startTime) return [];
-
-    const startTime = new Date(sessionRecording.startTime);
-    const timeline = [];
-    const chronological = generateChronologicalTranscription();
-    
-    chronological.forEach(entry => {
-      const entryTime = new Date(entry.timestamp);
-      const minutesFromStart = Math.floor((entryTime - startTime) / 60000);
-      
-      timeline.push({
-        minute: minutesFromStart,
-        timestamp: entry.timestamp,
-        type: entry.type,
-        source: entry.source,
-        preview: entry.content.substring(0, 100) + (entry.content.length > 100 ? '...' : '')
-      });
-    });
-
-    return timeline;
-  };
-
-  // Format duration helper
-  const formatDuration = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m ${secs}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${secs}s`;
-    } else {
-      return `${secs}s`;
-    }
-  };
+  const speechBufferRef = useRef({ coach: '', coachee: '' });
+  const silenceTimerRef = useRef(null);
 
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -575,27 +157,141 @@ export default function CoachingPage() {
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
-  // Export Topic History
-  const exportTopicHistory = () => {
-    const data = {
-      sessionDate: new Date().toISOString(),
-      currentMainTopic: currentMainTopic,
-      topicHistory: topicHistory,
-      sessionTopics: sessionTopics,
-      dialogueDuration: dialogueDuration
-    };
+  // Session Recording Functions
+  const startSessionRecording = () => {
+    const startTime = new Date();
+    const sessionId = `coaching_${startTime.toISOString().replace(/[:.]/g, '_')}`;
     
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const newSessionRecording = {
+      sessionId,
+      startTime: startTime.toISOString(),
+      endTime: null,
+      duration: 0,
+      language: appConfig.azureLanguage || 'en-US',
+      conversation: [],
+      aiQuestions: [],
+      topics: []
+    };
+
+    setSessionRecording(newSessionRecording);
+    setIsRecording(true);
+    showSnackbar('Session recording started', 'success');
+  };
+
+  const stopSessionRecording = () => {
+    if (!isRecording) return;
+
+    const endTime = new Date();
+    const startTime = new Date(sessionRecording.startTime);
+    const duration = Math.floor((endTime - startTime) / 1000);
+
+    setSessionRecording(prev => ({
+      ...prev,
+      endTime: endTime.toISOString(),
+      duration: duration
+    }));
+
+    setIsRecording(false);
+    
+    // Stop all audio recording
+    if (isCoachMicActive) stopRecording('coach');
+    if (isCoacheeMicActive) stopRecording('coachee');
+    if (isSystemAudioActive) stopRecording('system');
+    
+    // Stop dialogue
+    setIsDialogueActive(false);
+    
+    showSnackbar('Session recording stopped', 'info');
+  };
+
+  // Add conversation entry to session recording
+  const addConversationEntry = useCallback((text, speaker) => {
+    if (!isRecording || !text.trim()) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      conversation: [
+        ...prev.conversation,
+        {
+          timestamp: new Date().toISOString(),
+          speaker: speaker, // 'coach' or 'coachee'
+          text: text.trim()
+        }
+      ]
+    }));
+  }, [isRecording]);
+
+  // Add AI question to session recording
+  const addAIQuestionToSession = useCallback((questions) => {
+    if (!isRecording || !questions.length) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      aiQuestions: [
+        ...prev.aiQuestions,
+        {
+          timestamp: new Date().toISOString(),
+          questions: questions
+        }
+      ]
+    }));
+  }, [isRecording]);
+
+  // Add topic to session recording
+  const addTopicToSession = useCallback((topic) => {
+    if (!isRecording || !topic.trim()) return;
+
+    setSessionRecording(prev => ({
+      ...prev,
+      topics: [
+        ...prev.topics,
+        {
+          timestamp: new Date().toISOString(),
+          topic: topic.trim()
+        }
+      ]
+    }));
+  }, [isRecording]);
+
+  // Export simplified session data
+  const exportSession = () => {
+    if (!sessionRecording.sessionId) {
+      showSnackbar('No session to export', 'warning');
+      return;
+    }
+
+    // Create simple export format
+    const exportData = {
+      sessionInfo: {
+        sessionId: sessionRecording.sessionId,
+        startTime: sessionRecording.startTime,
+        endTime: sessionRecording.endTime,
+        duration: `${Math.floor(sessionRecording.duration / 60)}:${(sessionRecording.duration % 60).toString().padStart(2, '0')}`,
+        language: sessionRecording.language
+      },
+      conversation: sessionRecording.conversation,
+      aiQuestions: sessionRecording.aiQuestions,
+      topics: sessionRecording.topics,
+      summary: {
+        totalEntries: sessionRecording.conversation.length,
+        coachEntries: sessionRecording.conversation.filter(e => e.speaker === 'coach').length,
+        coacheeEntries: sessionRecording.conversation.filter(e => e.speaker === 'coachee').length,
+        aiQuestionsGenerated: sessionRecording.aiQuestions.reduce((sum, q) => sum + q.questions.length, 0),
+        topicsDiscussed: sessionRecording.topics.length
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `coaching-topics-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `${sessionRecording.sessionId}_session.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
-    showSnackbar('Topic history exported successfully', 'success');
+
+    showSnackbar('Session exported successfully', 'success');
   };
 
   // Settings Management
@@ -603,8 +299,6 @@ export default function CoachingPage() {
     const newConfig = getConfig();
     setAppConfig(newConfig);
     setIsAILoading(true);
-    setCoacheeAutoMode(newConfig.coacheeAutoMode !== undefined ? newConfig.coacheeAutoMode : true);
-    setIsManualMode(newConfig.isManualMode !== undefined ? newConfig.isManualMode : false);
     showSnackbar('Settings saved successfully', 'success');
   };
 
@@ -658,19 +352,6 @@ export default function CoachingPage() {
     if (isAILoading) initializeAI();
   }, [appConfig, isAILoading, showSnackbar]);
 
-  // Throttled AI Response Dispatch
-  useEffect(() => {
-    throttledDispatchSetAIResponseRef.current = throttle((payload) => {
-      dispatch(setAIResponse(payload));
-    }, 250, { leading: true, trailing: true });
-
-    return () => {
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-    };
-  }, [dispatch]);
-
   // Dialogue Timer Management
   useEffect(() => {
     if (isDialogueActive) {
@@ -678,7 +359,7 @@ export default function CoachingPage() {
         setDialogueDuration(prev => {
           const newDuration = prev + 1;
           
-          // Check if we should auto-generate questions
+          // Auto-generate questions every configured interval
           if (appConfig.autoSuggestQuestions && 
               newDuration >= appConfig.dialogueListenDuration &&
               newDuration % appConfig.dialogueListenDuration === 0) {
@@ -701,15 +382,15 @@ export default function CoachingPage() {
     };
   }, [isDialogueActive, appConfig]);
 
-  // Topic Generation Timer (2 minutes = 120 seconds)
+  // Topic Generation Timer (every 2 minutes)
   useEffect(() => {
     if (isDialogueActive) {
       summaryTimerRef.current = setInterval(() => {
         setSummaryTimer(prev => {
           const newTimer = prev + 1;
-          if (newTimer >= 120) { // Every 2 minutes
+          if (newTimer >= 120) {
             generateMainTopic();
-            return 0; // Reset timer
+            return 0;
           }
           return newTimer;
         });
@@ -727,27 +408,18 @@ export default function CoachingPage() {
     };
   }, [isDialogueActive]);
 
-  // Update refs when states change
-  useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
-  useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
-
-  // Main Topic Generation Function (2 minutes)
+  // Main Topic Generation Function
   const generateMainTopic = async () => {
     if (!aiClient || isAILoading || generatingTopic) return;
     
-    const coacheeText = tempSpeechBuffer.current.coachee.trim();
-    
-    if (!coacheeText) return;
+    const recentText = speechBufferRef.current.coachee.trim();
+    if (!recentText) return;
 
     setGeneratingTopic(true);
-    addEventToSession('topic_generation_started', 'AI started generating main topic');
     
     try {
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
-      
-      // Generate main topic in conversation language
-      const prompt = `In ${language}, identify the main topic/theme the coachee is discussing in 3-5 words maximum. Based on: "${coacheeText}"`;
+      const prompt = `In ${language}, identify the main topic/theme being discussed in 3-5 words maximum. Based on: "${recentText.substring(0, 200)}"`;
       
       let topicResponse = '';
       if (aiClient.type === 'anthropic') {
@@ -779,30 +451,16 @@ export default function CoachingPage() {
         topicResponse = result.response.text();
       }
       
-      // Store previous topic in history before updating
-      if (currentMainTopic) {
-        setTopicHistory(prev => [{ 
-          topic: currentMainTopic, 
-          timestamp: new Date(Date.now() - 120000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
-          id: Date.now() - 120000 
-        }, ...prev]);
-      }
-      
-      // Update current topic
       const newTopic = topicResponse.trim();
       setCurrentMainTopic(newTopic);
+      addTopicToSession(newTopic);
       
-      // Add to session recording
-      addTopicToSession(newTopic, coacheeText.substring(0, 200));
-      addEventToSession('topic_generated', `New main topic identified: ${newTopic}`);
-      
-      // Clear the temporary buffer
-      tempSpeechBuffer.current = { coach: '', coachee: '' };
+      // Clear the buffer
+      speechBufferRef.current = { coach: '', coachee: '' };
       
     } catch (error) {
       console.error('Error generating main topic:', error);
       showSnackbar('Failed to generate main topic: ' + error.message, 'error');
-      addEventToSession('topic_generation_error', `Error generating topic: ${error.message}`);
     } finally {
       setGeneratingTopic(false);
     }
@@ -831,38 +489,23 @@ export default function CoachingPage() {
 
     const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
-    // Update transcription status to active
+    // Update transcription status
     if (source === 'coach') {
       setCoachTranscriptionStatus('active');
     } else {
       setCoacheeTranscriptionStatus('active');
     }
 
-    recognizer.recognizing = (s, e) => {
-      if (e.result.reason === SpeechSDK.ResultReason.RecognizingSpeech) {
-        const interimText = e.result.text;
-        if (source === 'coachee') {
-          coacheeInterimTranscription.current = interimText;
-          dispatch(setTranscription(finalTranscript.current.coachee + interimText));
-          setLastCoacheeActivity(Date.now());
-        } else {
-          coachInterimTranscription.current = interimText;
-          setCoachTranscription(finalTranscript.current.coach + interimText);
-          setLastCoachActivity(Date.now());
-        }
-      }
-    };
-
     recognizer.recognized = (s, e) => {
       if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
-        if (source === 'coachee') {
-          coacheeInterimTranscription.current = '';
-          setLastCoacheeActivity(Date.now());
-        } else {
-          coachInterimTranscription.current = '';
-          setLastCoachActivity(Date.now());
-        }
         handleTranscriptionEvent(e.result.text, source);
+        
+        // Update activity time
+        if (source === 'coach') {
+          setLastCoachActivity(Date.now());
+        } else {
+          setLastCoacheeActivity(Date.now());
+        }
       }
     };
 
@@ -881,25 +524,14 @@ export default function CoachingPage() {
       stopRecording(source);
     };
 
-    recognizer.sessionStopped = (s, e) => {
-      console.log(`Session stopped event for ${source}.`);
-      stopRecording(source);
-    };
-
     try {
       await recognizer.startContinuousRecognitionAsync();
-      addEventToSession('audio_started', `${source === 'coach' ? 'Coach' : 'Coachee'} audio recording started`);
       return recognizer;
     } catch (error) {
       console.error(`Error starting ${source} continuous recognition:`, error);
       showSnackbar(`Failed to start ${source} recognition: ${error.message}`, 'error');
       if (audioConfig?.close) audioConfig.close();
       mediaStream.getTracks().forEach(track => track.stop());
-      if (source === 'coach') {
-        setCoachTranscriptionStatus('error');
-      } else {
-        setCoacheeTranscriptionStatus('error');
-      }
       return null;
     }
   };
@@ -922,8 +554,6 @@ export default function CoachingPage() {
         if (recognizer.audioConfig?.close) {
           recognizer.audioConfig.close();
         }
-        
-        // Call recognizer close if available
         if (recognizer.close) {
           recognizer.close();
         }
@@ -946,16 +576,11 @@ export default function CoachingPage() {
           setCoacheeRecognizer(null);
           setCoacheeTranscriptionStatus('idle');
           
-          // Additional cleanup for system audio
           if (systemAudioStreamRef.current) {
-            systemAudioStreamRef.current.getTracks().forEach(track => {
-              track.stop();
-            });
+            systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
             systemAudioStreamRef.current = null;
           }
         }
-        
-        addEventToSession('audio_stopped', `${source === 'coach' ? 'Coach' : 'Coachee'} audio recording stopped`);
       }
     }
   };
@@ -992,7 +617,6 @@ export default function CoachingPage() {
         return;
       }
 
-      // Store the stream reference for proper cleanup
       systemAudioStreamRef.current = mediaStream;
 
       if (coacheeRecognizer) {
@@ -1005,7 +629,6 @@ export default function CoachingPage() {
         setIsSystemAudioActive(true);
         showSnackbar('System audio recording started for coachee.', 'success');
         
-        // Handle stream end events
         mediaStream.getTracks().forEach(track => {
           track.onended = () => {
             showSnackbar('Tab sharing ended.', 'info');
@@ -1041,7 +664,6 @@ export default function CoachingPage() {
       return;
     }
 
-    // For coachee, stop system audio if it's active
     if (source === 'coachee' && isSystemAudioActive) {
       await stopRecording('system');
     }
@@ -1088,27 +710,23 @@ export default function CoachingPage() {
     }
   };
 
-  // Transcription Event Handler
+  // Transcription Event Handler - SIMPLIFIED
   const handleTranscriptionEvent = (text, source) => {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
 
-    // Add to session recording
-    addTranscriptionToSession(cleanText, source);
+    // Add to conversation recording
+    addConversationEntry(cleanText, source);
 
     // Start dialogue tracking if not already active
     if (!isDialogueActive) {
       setIsDialogueActive(true);
-      addEventToSession('dialogue_started', 'Active dialogue detected');
     }
     
-    // Reset the last activity time
-    lastQuestionTimeRef.current = Date.now();
+    // Add to speech buffer for topic generation
+    speechBufferRef.current[source] += cleanText + ' ';
     
-    // Add to temporary speech buffer for topic generation
-    tempSpeechBuffer.current[source] += cleanText + ' ';
-    
-    // Add to dialogue buffer for context
+    // Add to dialogue buffer for question generation context
     dialogueBufferRef.current.push({
       text: cleanText,
       source: source,
@@ -1121,203 +739,11 @@ export default function CoachingPage() {
       item => item.timestamp > fiveMinutesAgo
     );
 
-    // Update transcription
-    finalTranscript.current[source] += cleanText + ' ';
-    
-    if (source === 'coachee') {
-      dispatch(setTranscription(finalTranscript.current.coachee + coacheeInterimTranscription.current));
-    } else {
-      setCoachTranscription(finalTranscript.current.coach + coachInterimTranscription.current);
-    }
-
-    // Handle auto-submission with silence timer
-    if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
-      clearTimeout(silenceTimer.current);
-      silenceTimer.current = setTimeout(() => {
-        askAI(finalTranscript.current[source].trim(), source);
-      }, appConfig.silenceTimerDuration * 1000);
-    }
+    // Show in real-time display
+    dispatch(setTranscription(cleanText));
   };
 
-  // Manual Input Handlers
-  const handleManualInputChange = (value, source) => {
-    if (source === 'coachee') {
-      dispatch(setTranscription(value));
-      finalTranscript.current.coachee = value;
-    } else {
-      setCoachTranscription(value);
-      finalTranscript.current.coach = value;
-    }
-  };
-
-  const handleManualSubmit = (source) => {
-    const textToSubmit = source === 'coachee' ? transcriptionFromStore : coachTranscription;
-    if (textToSubmit.trim()) {
-      askAI(textToSubmit.trim(), source);
-    } else {
-      showSnackbar('Input is empty.', 'warning');
-    }
-  };
-
-  const handleKeyPress = (e, source) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleManualSubmit(source);
-    }
-  };
-
-  // Clear Functions
-  const handleClearTranscription = (source) => {
-    if (source === 'coachee') {
-      finalTranscript.current.coachee = '';
-      coacheeInterimTranscription.current = '';
-      dispatch(clearTranscription());
-    } else {
-      finalTranscript.current.coach = '';
-      coachInterimTranscription.current = '';
-      setCoachTranscription('');
-    }
-  };
-
-  // AI Processing
-  const askAI = async (text, source) => {
-    if (!text.trim()) {
-      showSnackbar('No input text to process.', 'warning');
-      return;
-    }
-    if (!aiClient || isAILoading) {
-      showSnackbar('AI client is not ready. Please wait or check settings.', 'warning');
-      return;
-    }
-
-    const lengthSettings = {
-      concise: { temperature: 0.4, maxTokens: 250 },
-      medium: { temperature: 0.6, maxTokens: 500 },
-      lengthy: { temperature: 0.8, maxTokens: 1000 }
-    };
-    const { temperature, maxTokens } = lengthSettings[appConfig.responseLength || 'medium'];
-
-    setIsProcessing(true);
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    let streamedResponse = '';
-
-    dispatch(addToHistory({ type: 'question', text, timestamp, source, status: 'pending' }));
-    dispatch(setAIResponse(''));
-
-    // Add AI processing event to session
-    addEventToSession('ai_processing_started', `AI processing ${source} input: ${text.substring(0, 50)}...`);
-
-    try {
-      const conversationHistoryForAPI = history
-        .filter(e => e.text && (e.type === 'question' || e.type === 'response') && e.status !== 'pending')
-        .slice(-6)
-        .map(event => ({
-          role: event.type === 'question' ? 'user' : 'assistant',
-          content: event.text,
-        }));
-
-      if (aiClient.type === 'anthropic') {
-        const response = await aiClient.client.messages.create({
-          model: appConfig.aiModel,
-          max_tokens: maxTokens,
-          temperature,
-          system: appConfig.systemPrompt,
-          messages: [
-            ...conversationHistoryForAPI,
-            { role: 'user', content: text }
-          ],
-          stream: true
-        });
-
-        for await (const chunk of response) {
-          if (chunk.type === 'content_block_delta') {
-            const chunkText = chunk.delta.text || '';
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else if (aiClient.type === 'gemini') {
-        const model = aiClient.client.getGenerativeModel({
-          model: appConfig.aiModel,
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
-          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
-        });
-        const chat = model.startChat({
-          history: conversationHistoryForAPI.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          })),
-        });
-        const result = await chat.sendMessageStream(text);
-        for await (const chunk of result.stream) {
-          if (chunk?.text) {
-            const chunkText = chunk.text();
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else {
-        const messages = [
-          { role: 'system', content: appConfig.systemPrompt },
-          ...conversationHistoryForAPI,
-          { role: 'user', content: text }
-        ];
-        const stream = await aiClient.client.chat.completions.create({
-          model: appConfig.aiModel,
-          messages,
-          temperature,
-          max_tokens: maxTokens,
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          const chunkText = chunk.choices[0]?.delta?.content || '';
-          streamedResponse += chunkText;
-          if (throttledDispatchSetAIResponseRef.current) {
-            throttledDispatchSetAIResponseRef.current(streamedResponse);
-          }
-        }
-      }
-
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-      dispatch(setAIResponse(streamedResponse));
-
-      const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
-
-      // Add to session recording
-      addAIInteractionToSession(text, streamedResponse, source, suggestedQuestions.length > 0 ? suggestedQuestions : null);
-      addEventToSession('ai_response_completed', `AI response generated for ${source} query`);
-
-    } catch (error) {
-      console.error("AI request error:", error);
-      const errorMessage = `AI request failed: ${error.message || 'Unknown error'}`;
-      showSnackbar(errorMessage, 'error');
-      dispatch(setAIResponse(`Error: ${errorMessage}`));
-      dispatch(addToHistory({ type: 'response', text: `Error: ${errorMessage}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'error' }));
-      
-      addEventToSession('ai_error', `AI error: ${errorMessage}`);
-    } finally {
-      if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
-        finalTranscript.current[source] = '';
-        if (source === 'coachee') {
-          coacheeInterimTranscription.current = '';
-          dispatch(setTranscription(''));
-        } else {
-          coachInterimTranscription.current = '';
-          setCoachTranscription('');
-        }
-      }
-      setIsProcessing(false);
-    }
-  };
-
-  // Question Generation with specific prompt
+  // Question Generation
   const generateCoachingQuestions = async (numQuestions = null) => {
     const questionsToGenerate = numQuestions || appConfig.numberOfQuestions || 2;
     
@@ -1327,7 +753,6 @@ export default function CoachingPage() {
     }
     
     setGeneratingQuestions(true);
-    addEventToSession('questions_generation_started', `Starting generation of ${questionsToGenerate} coaching questions`);
     
     // Gather recent dialogue context
     const recentDialogue = dialogueBufferRef.current
@@ -1337,8 +762,9 @@ export default function CoachingPage() {
     
     const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
     
-    const prompt = `Generate exactly ${questionsToGenerate} powerful coaching questions in ${language} based on the conversation context. Follow these specific guidelines:
+    const prompt = `Generate exactly ${questionsToGenerate} powerful coaching questions in ${language} based on the conversation context. 
 
+Guidelines:
 - Use open-ended questions that cannot be answered with yes/no
 - Keep questions short and clear (ideally under 15 words)
 - Focus on the coachee's thoughts, feelings, and actions
@@ -1388,47 +814,28 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       // Parse the questions
       const questions = parseQuestions(questionsResponse, questionsToGenerate);
       
+      // Add questions to session recording
+      addAIQuestionToSession(questions);
+      
       // Add newest questions to the TOP of the array
       setSuggestedQuestions(prev => [...questions, ...prev]);
-      
-      // Add to history
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      dispatch(addToHistory({ 
-        type: 'questions', 
-        text: `Suggested Questions:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`,
-        timestamp,
-        status: 'completed'
-      }));
-
-      // Add to session recording
-      addEventToSession('questions_generated', `Generated ${questions.length} coaching questions`, { questions });
       
       showSnackbar(`Generated ${questions.length} coaching question(s)`, 'success');
       
     } catch (error) {
       console.error('Error generating questions:', error);
       showSnackbar('Failed to generate questions: ' + error.message, 'error');
-      addEventToSession('questions_generation_error', `Error generating questions: ${error.message}`);
     } finally {
       setGeneratingQuestions(false);
     }
   };
 
-  // Use a question directly
+  // Use a question
   const useQuestion = (question) => {
-    askAI(question, 'suggested');
-  };
-
-  // Session Topic Management
-  const addSessionTopic = () => {
-    if (currentTopic.trim() && !sessionTopics.includes(currentTopic.trim())) {
-      setSessionTopics([...sessionTopics, currentTopic.trim()]);
-      setCurrentTopic('');
-    }
-  };
-
-  const removeSessionTopic = (topicToRemove) => {
-    setSessionTopics(sessionTopics.filter(topic => topic !== topicToRemove));
+    // Add to conversation as coach question
+    addConversationEntry(question, 'coach');
+    dispatch(setTranscription(`Coach: ${question}`));
+    showSnackbar('Question added to conversation', 'success');
   };
 
   // Component Definitions
@@ -1500,12 +907,12 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             <HistoryIcon />
           </Badge>
         }
-        subheader={isRecording ? `Recording for ${formatDuration(dialogueDuration)}` : 'Not recording'}
+        subheader={isRecording ? `Recording for ${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}` : 'Not recording'}
         action={
           <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title="Export Complete Session">
+            <Tooltip title="Export Session">
               <IconButton 
-                onClick={exportCompleteSession} 
+                onClick={exportSession} 
                 disabled={!sessionRecording.sessionId}
                 color="primary"
               >
@@ -1531,23 +938,23 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h6" color="primary">
-                  {sessionRecording.statistics.totalWords.coach}
+                  {sessionRecording.conversation.filter(e => e.speaker === 'coach').length}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Coach Words
+                  Coach Entries
                 </Typography>
               </Box>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h6" color="secondary">
-                  {sessionRecording.statistics.totalWords.coachee}
+                  {sessionRecording.conversation.filter(e => e.speaker === 'coachee').length}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Coachee Words
+                  Coachee Entries
                 </Typography>
               </Box>
               <Box sx={{ textAlign: 'center' }}>
                 <Typography variant="h6" color="info.main">
-                  {sessionRecording.statistics.questionsGenerated}
+                  {sessionRecording.aiQuestions.reduce((sum, q) => sum + q.questions.length, 0)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   AI Questions
@@ -1555,25 +962,15 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               </Box>
             </Box>
             
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                Session Progress
-              </Typography>
-              <LinearProgress 
-                variant="indeterminate" 
-                sx={{ height: 4, borderRadius: 2 }}
-                color="success"
-              />
-            </Box>
+            <LinearProgress 
+              variant="indeterminate" 
+              sx={{ height: 4, borderRadius: 2, mb: 2 }}
+              color="success"
+            />
 
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Chip 
-                label={`${sessionRecording.events.length} Events`} 
-                size="small" 
-                variant="outlined"
-              />
-              <Chip 
-                label={`${sessionRecording.aiInteractions.length} AI Interactions`} 
+                label={`${sessionRecording.conversation.length} Entries`} 
                 size="small" 
                 variant="outlined"
               />
@@ -1593,7 +990,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               Session Data Available
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {sessionRecording.statistics.totalWords.coach + sessionRecording.statistics.totalWords.coachee} total words recorded
+              {sessionRecording.conversation.length} conversation entries recorded
             </Typography>
           </Box>
         )}
@@ -1605,7 +1002,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               Ready to Record
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Start recording to capture complete session data
+              Start recording to capture session data
             </Typography>
           </Box>
         )}
@@ -1620,13 +1017,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         title="Current Main Topic"
         avatar={<TopicIcon />}
         subheader={`Next update in ${Math.floor((120 - summaryTimer) / 60)}:${((120 - summaryTimer) % 60).toString().padStart(2, '0')}`}
-        action={
-          <Tooltip title="Export Topic History">
-            <IconButton onClick={exportTopicHistory} disabled={topicHistory.length === 0}>
-              <DownloadIcon />
-            </IconButton>
-          </Tooltip>
-        }
         sx={{ pb: 1 }}
       />
       <CardContent>
@@ -1636,7 +1026,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               p: 3,
               bgcolor: 'primary.50',
               border: `2px solid ${theme.palette.primary.main}`,
-              borderColor: 'primary.main',
               textAlign: 'center'
             }}
             elevation={3}
@@ -1674,18 +1063,12 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           sx={{ mt: 2, height: 6, borderRadius: 3 }}
           color="primary"
         />
-        
-        {topicHistory.length > 0 && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-            {topicHistory.length} previous topic(s) in history
-          </Typography>
-        )}
       </CardContent>
     </Card>
   );
 
-  // Transcription Feedback Component
-  const TranscriptionFeedback = () => {
+  // Transcription Status Component
+  const TranscriptionStatus = () => {
     const getStatusColor = (status) => {
       switch (status) {
         case 'active': return 'success';
@@ -1716,7 +1099,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     return (
       <Card sx={{ mb: 2 }}>
         <CardHeader 
-          title="Transcription Status"
+          title="Audio Status"
           avatar={<SignalWifiStatusbar4BarIcon />}
           sx={{ pb: 1 }}
         />
@@ -1736,143 +1119,33 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             </Box>
           </Box>
           
-          {(coacheeTranscriptionStatus === 'active' || coachTranscriptionStatus === 'active') && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-              <CheckCircleIcon color="success" fontSize="small" />
-              <Typography variant="caption" color="success.main">
-                Transcription working properly
-              </Typography>
-            </Box>
-          )}
-          
-          {(coacheeTranscriptionStatus === 'error' || coachTranscriptionStatus === 'error') && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-              <ErrorIcon color="error" fontSize="small" />
-              <Typography variant="caption" color="error.main">
-                Transcription issues detected
-              </Typography>
-            </Box>
-          )}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+            {(coacheeTranscriptionStatus === 'active' || coachTranscriptionStatus === 'active') ? (
+              <>
+                <CheckCircleIcon color="success" fontSize="small" />
+                <Typography variant="caption" color="success.main">
+                  Audio transcription working
+                </Typography>
+              </>
+            ) : (
+              <>
+                <SignalWifiStatusbar4BarIcon color="info" fontSize="small" />
+                <Typography variant="caption" color="text.secondary">
+                  Ready to capture audio
+                </Typography>
+              </>
+            )}
+          </Box>
         </CardContent>
       </Card>
     );
   };
 
-  // Audio Status Component
-  const AudioStatusIndicator = ({ isActive, color, label }) => (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 2 }}>
-      <FiberManualRecordIcon 
-        sx={{ 
-          color: isActive ? color : 'grey.400',
-          fontSize: 16,
-          animation: isActive ? 'pulse 2s infinite' : 'none'
-        }} 
-      />
-      <Typography variant="caption" color={isActive ? 'text.primary' : 'text.secondary'}>
-        {label}
-      </Typography>
-      <style jsx>{`
-        @keyframes pulse {
-          0% { opacity: 1; }
-          50% { opacity: 0.5; }
-          100% { opacity: 1; }
-        }
-      `}</style>
-    </Box>
-  );
-
-  // Summary Card Component
-  const SummaryCard = () => (
-    <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-      <CardHeader
-        title="AI Coaching Insights"
-        avatar={<PsychologyIcon />}
-        subheader="Smart questions generated based on conversation flow"
-        sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
-      />
-      <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
-        <ScrollToBottom
-          className="scroll-to-bottom"
-          followButtonClassName="hidden-follow-button"
-        >
-          <Box sx={{ p: 2 }}>
-            {suggestedQuestions.length > 0 ? (
-              suggestedQuestions.map((question, index) => (
-                <Grow
-                  in={true}
-                  timeout={500 + (index * 100)}
-                  key={`question-${index}`}
-                >
-                  <Paper 
-                    sx={{ 
-                      p: 2, 
-                      mb: 2, 
-                      cursor: 'pointer',
-                      transition: 'all 0.3s ease',
-                      border: index === 0 ? `2px solid ${theme.palette.primary.main}` : '1px solid',
-                      borderColor: index === 0 ? 'primary.main' : 'divider',
-                      bgcolor: index === 0 ? 'primary.50' : 'background.paper',
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: theme.shadows[4]
-                      }
-                    }}
-                    elevation={index === 0 ? 3 : 1}
-                    onClick={() => useQuestion(question)}
-                  >
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                      <Chip 
-                        label={`Q${index + 1}`} 
-                        size="small" 
-                        color={index === 0 ? "primary" : "default"}
-                        sx={{ mt: 0.5 }}
-                      />
-                      <Typography 
-                        variant={index === 0 ? "h6" : "body1"} 
-                        sx={{ 
-                          fontWeight: index === 0 ? 'bold' : 'normal',
-                          color: index === 0 ? 'primary.main' : 'text.primary'
-                        }}
-                      >
-                        {question}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grow>
-              ))
-            ) : (
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                height: 300,
-                textAlign: 'center'
-              }}>
-                <PsychologyIcon sx={{ fontSize: 64, color: 'grey.400', mb: 2 }} />
-                <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                  {generatingQuestions ? 'Generating Questions...' : 'Ready to Generate Questions'}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {generatingQuestions ? 
-                    'Please wait while we analyze the conversation...' : 
-                    'Click the Generate button or wait for auto-generation to begin'
-                  }
-                </Typography>
-                {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
-              </Box>
-            )}
-          </Box>
-        </ScrollToBottom>
-      </CardContent>
-    </Card>
-  );
-
   // Main Render
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant - Enhanced Session Recording</title>
+        <title>Executive Coaching Assistant - Simplified</title>
       </Head>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <AppBar position="static" color="default" elevation={1}>
@@ -1881,18 +1154,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'text.primary' }}>
               Executive Coaching Assistant
             </Typography>
-            
-            {/* Audio Status Indicators */}
-            <AudioStatusIndicator 
-              isActive={isSystemAudioActive || isCoacheeMicActive}
-              color="green"
-              label="Coachee"
-            />
-            <AudioStatusIndicator 
-              isActive={isCoachMicActive}
-              color="purple"
-              label="Coach"
-            />
             
             {/* Recording Status */}
             {isRecording && (
@@ -1905,11 +1166,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               />
             )}
             
-            {/* Dialogue Duration Indicator */}
+            {/* Session Timer */}
             {isDialogueActive && (
               <Chip
                 icon={<TimerIcon />}
-                label={`Session: ${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}`}
+                label={`${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}`}
                 color="primary"
                 variant="outlined"
                 sx={{ mr: 2 }}
@@ -1917,7 +1178,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             )}
             
             <Tooltip title="Settings">
-              <IconButton color="primary" onClick={() => setSettingsOpen(true)} aria-label="settings">
+              <IconButton color="primary" onClick={() => setSettingsOpen(true)}>
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
@@ -1926,16 +1187,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
         <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
           <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-            {/* Left Panel - Session Management & Audio Controls */}
+            {/* Left Panel - Session Management */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {/* Session Recording Card */}
               <SessionRecordingCard />
-              
-              {/* Main Topic Card */}
               <MainTopicCard />
-              
-              {/* Transcription Feedback */}
-              <TranscriptionFeedback />
+              <TranscriptionStatus />
               
               <Card>
                 <CardHeader title="Audio Controls" avatar={<RecordVoiceOverIcon />} sx={{ pb: 1 }} />
@@ -1965,27 +1221,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               </Card>
             </Grid>
 
-            {/* Center Panel - Coaching Questions (Largest) */}
+            {/* Right Panel - Coaching Questions */}
             <Grid item xs={12} md={9} sx={{ display: 'flex', flexDirection: 'column' }}>
               <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <CardHeader 
-                  title="Coaching Questions"
+                  title="AI Coaching Questions"
                   avatar={<QuestionAnswerIcon />}
                   action={
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      {appConfig.autoSuggestQuestions && dialogueDuration > 0 && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <TimerIcon fontSize="small" color="action" />
-                          <Typography variant="caption" color="text.secondary">
-                            Next in {Math.max(0, appConfig.dialogueListenDuration - (dialogueDuration % appConfig.dialogueListenDuration))}s
-                          </Typography>
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={(dialogueDuration % appConfig.dialogueListenDuration) / appConfig.dialogueListenDuration * 100}
-                            sx={{ width: 60, height: 4 }}
-                          />
-                        </Box>
-                      )}
                       <Tooltip title="Generate Questions Now">
                         <IconButton 
                           onClick={() => setUrgentQuestionsDialog(true)}
@@ -2021,15 +1264,13 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                             <Paper 
                               sx={{ 
                                 p: 3,
-                                transform: index === 0 ? 'scale(1)' : `scale(${Math.max(0.90, 1 - index * 0.05)})`,
-                                transformOrigin: 'top center',
-                                opacity: Math.max(0.8, 1 - index * 0.1),
                                 bgcolor: index === 0 ? 'primary.50' : 'background.paper',
                                 border: index === 0 ? `2px solid ${theme.palette.primary.main}` : '1px solid',
                                 borderColor: index === 0 ? 'primary.main' : 'divider',
                                 cursor: 'pointer',
+                                transition: 'all 0.3s ease',
                                 '&:hover': {
-                                  transform: `scale(${index === 0 ? 1.02 : Math.max(0.92, 1 - index * 0.05)})`,
+                                  transform: 'translateY(-2px)',
                                   boxShadow: theme.shadows[4]
                                 }
                               }}
@@ -2074,7 +1315,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                       <Typography variant="body2" color="text.secondary">
                         {generatingQuestions ? 
                           'Please wait while we analyze the conversation...' : 
-                          'Click the Generate button or wait for auto-generation to begin'
+                          'Click Generate or wait for auto-generation'
                         }
                       </Typography>
                       {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
@@ -2089,7 +1330,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                         onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
                         disabled={generatingQuestions}
                       >
-                        Refresh Questions
+                        Generate More
                       </Button>
                       <Button
                         size="small"
@@ -2106,17 +1347,16 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           </Grid>
         </Container>
 
-        {/* Floating Action Button for Quick Question Generation */}
+        {/* Floating Action Button */}
         <Fab
           color="primary"
-          aria-label="generate questions"
           onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
           disabled={generatingQuestions || !aiClient || isAILoading}
           sx={{
             position: 'fixed',
             bottom: 24,
             right: 24,
-            display: { xs: 'flex', md: 'none' } // Only show on mobile
+            display: { xs: 'flex', md: 'none' }
           }}
         >
           {generatingQuestions ? <CircularProgress size={24} color="inherit" /> : <PsychologyIcon />}
@@ -2130,7 +1370,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           onSave={handleSettingsSaved}
         />
         
-        {/* Snackbar for notifications */}
+        {/* Snackbar */}
         <Snackbar
           open={snackbarOpen}
           autoHideDuration={4000}
@@ -2155,7 +1395,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         }
         .scroll-to-bottom::-webkit-scrollbar {
           width: 8px;
-          height: 8px;
         }
         .scroll-to-bottom::-webkit-scrollbar-track {
           background: ${theme.palette.background.paper};
@@ -2168,10 +1407,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         }
         .scroll-to-bottom::-webkit-scrollbar-thumb:hover {
           background-color: ${theme.palette.grey[500]};
-        }
-        .scroll-to-bottom {
-          scrollbar-width: thin;
-          scrollbar-color: ${theme.palette.grey[400]} ${theme.palette.background.paper};
         }
         @keyframes pulse {
           0% { opacity: 1; }

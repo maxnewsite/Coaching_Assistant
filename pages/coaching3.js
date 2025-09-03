@@ -1,4 +1,4 @@
-// pages/coaching.js - Enhanced Executive Coaching Assistant with Complete Session Recording
+// pages/coaching.js - Enhanced Executive Coaching Assistant with Complete Session Recording and final steps
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -2248,3 +2248,5 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </>
   );
 }
+
+

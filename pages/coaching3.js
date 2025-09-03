@@ -2074,57 +2074,98 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                 <CardHeader
                   title="Question Bank"
                   avatar={<MenuBookIcon />}
-                  subheader="Smart highlighting based on dialogue"
+                  subheader={loadedQuestionBank.length > 0 ? 
+                    `${loadedQuestionBank.length} questions loaded - Smart highlighting based on dialogue` :
+                    "Load questions from file to access question bank"
+                  }
                   sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
                 />
                 <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
-                  <ScrollToBottom
-                    className="scroll-to-bottom"
-                    followButtonClassName="hidden-follow-button"
-                  >
-                    <List sx={{ px: 1, py: 1 }} dense>
-                      {getHighlightedQuestions().map((item, index) => (
-                        <ListItem 
-                          key={index}
-                          sx={{ 
-                            cursor: 'pointer',
-                            borderRadius: 1,
-                            mb: 0.5,
-                            bgcolor: item.relevance > 0 ? 'warning.50' : 'transparent',
-                            border: item.relevance > 0 ? `1px solid ${theme.palette.warning.main}` : '1px solid transparent',
-                            '&:hover': {
-                              bgcolor: item.relevance > 0 ? 'warning.100' : 'action.hover'
-                            }
-                          }}
-                          onClick={() => askAI(item.question, 'preloaded')}
+                  {loadedQuestionBank.length > 0 ? (
+                    <ScrollToBottom
+                      className="scroll-to-bottom"
+                      followButtonClassName="hidden-follow-button"
+                    >
+                      <List sx={{ px: 1, py: 1 }} dense>
+                        {getHighlightedQuestions().map((item, index) => (
+                          <ListItem 
+                            key={index}
+                            sx={{ 
+                              cursor: 'pointer',
+                              borderRadius: 1,
+                              mb: 0.5,
+                              bgcolor: item.relevance > 0 ? 'warning.50' : 'transparent',
+                              border: item.relevance > 0 ? `1px solid ${theme.palette.warning.main}` : '1px solid transparent',
+                              '&:hover': {
+                                bgcolor: item.relevance > 0 ? 'warning.100' : 'action.hover'
+                              }
+                            }}
+                            onClick={() => askAI(item.question, 'preloaded')}
+                          >
+                            <ListItemText
+                              primary={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  {item.relevance > 0 && (
+                                    <Chip 
+                                      label="Relevant" 
+                                      size="small" 
+                                      color="warning"
+                                      sx={{ fontSize: '0.7rem', height: 20 }}
+                                    />
+                                  )}
+                                  <Typography 
+                                    variant="body2" 
+                                    sx={{ 
+                                      fontWeight: item.relevance > 0 ? 'bold' : 'normal',
+                                      color: item.relevance > 0 ? 'warning.dark' : 'text.primary'
+                                    }}
+                                  >
+                                    {item.question}
+                                  </Typography>
+                                </Box>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </ScrollToBottom>
+                  ) : (
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      height: '100%',
+                      textAlign: 'center',
+                      p: 3
+                    }}>
+                      <MenuBookIcon sx={{ fontSize: 64, color: 'grey.400', mb: 2 }} />
+                      <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                        No Question Bank Loaded
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                        Upload a JSON or TXT file containing coaching questions to access the question bank feature.
+                      </Typography>
+                      
+                      <input
+                        accept=".json,.txt"
+                        style={{ display: 'none' }}
+                        id="question-bank-upload-empty"
+                        type="file"
+                        onChange={handleQuestionBankUpload}
+                      />
+                      <label htmlFor="question-bank-upload-empty">
+                        <Button
+                          variant="contained"
+                          component="span"
+                          startIcon={<MenuBookIcon />}
+                          color="primary"
                         >
-                          <ListItemText
-                            primary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                {item.relevance > 0 && (
-                                  <Chip 
-                                    label="Relevant" 
-                                    size="small" 
-                                    color="warning"
-                                    sx={{ fontSize: '0.7rem', height: 20 }}
-                                  />
-                                )}
-                                <Typography 
-                                  variant="body2" 
-                                  sx={{ 
-                                    fontWeight: item.relevance > 0 ? 'bold' : 'normal',
-                                    color: item.relevance > 0 ? 'warning.dark' : 'text.primary'
-                                  }}
-                                >
-                                  {item.question}
-                                </Typography>
-                              </Box>
-                            }
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  </ScrollToBottom>
+                          Load Questions
+                        </Button>
+                      </label>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             </Grid>

@@ -1,4 +1,4 @@
-// pages/coaching.js - Enhanced Executive Coaching Assistant with Complete Session Recording and final steps
+// pages/coaching3.js - Enhanced Executive Coaching Assistant with Complete Session Recording (Fixed)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -100,35 +100,6 @@ import { clearTranscription, setTranscription } from '../redux/transcriptionSlic
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
 
-// Pre-loaded Question Bank with keywords
-const QUESTION_BANK = [
-  { question: "What specific outcome are you hoping to achieve?", keywords: ["goal", "target", "outcome", "achievement", "result"] },
-  { question: "How does this align with your core values?", keywords: ["values", "principles", "beliefs", "ethics", "integrity"] },
-  { question: "What would success look like in this situation?", keywords: ["success", "achievement", "victory", "completion", "accomplishment"] },
-  { question: "What's the most important thing for you to focus on right now?", keywords: ["priority", "focus", "important", "urgent", "crucial"] },
-  { question: "What options haven't you considered yet?", keywords: ["options", "alternatives", "possibilities", "choices", "solutions"] },
-  { question: "What would you do if you knew you couldn't fail?", keywords: ["fear", "failure", "risk", "doubt", "confidence"] },
-  { question: "What's really important to you about this?", keywords: ["important", "matter", "value", "significance", "meaning"] },
-  { question: "What would your best self do in this situation?", keywords: ["best", "ideal", "potential", "growth", "development"] },
-  { question: "What patterns do you notice in your approach?", keywords: ["pattern", "habit", "behavior", "routine", "tendency"] },
-  { question: "What would need to change for this to work?", keywords: ["change", "adapt", "modify", "adjust", "transform"] },
-  { question: "How might you approach this differently?", keywords: ["different", "alternative", "new", "creative", "innovative"] },
-  { question: "What's possible that you haven't thought of yet?", keywords: ["possible", "potential", "opportunity", "chance", "prospect"] },
-  { question: "What would make the biggest difference?", keywords: ["difference", "impact", "effect", "influence", "change"] },
-  { question: "What are you not saying that needs to be said?", keywords: ["communication", "honest", "truth", "expression", "voice"] },
-  { question: "What would you tell a friend in this situation?", keywords: ["advice", "friend", "perspective", "counsel", "guidance"] },
-  { question: "What assumptions are you making?", keywords: ["assumption", "belief", "presumption", "expectation", "hypothesis"] },
-  { question: "What's the next smallest step you could take?", keywords: ["step", "action", "progress", "movement", "forward"] },
-  { question: "What would happen if you did nothing?", keywords: ["nothing", "inaction", "status quo", "wait", "delay"] },
-  { question: "What support do you need to move forward?", keywords: ["support", "help", "assistance", "resources", "backup"] },
-  { question: "What would you regret not trying?", keywords: ["regret", "try", "attempt", "opportunity", "chance"] },
-  { question: "How does this situation make you feel?", keywords: ["feel", "emotion", "sentiment", "mood", "reaction"] },
-  { question: "What's driving your decision-making process?", keywords: ["decision", "choice", "motivation", "drive", "reason"] },
-  { question: "What would confidence look like in this scenario?", keywords: ["confidence", "self-assurance", "courage", "boldness", "certainty"] },
-  { question: "What's working well that you could build upon?", keywords: ["working", "strength", "success", "positive", "build"] },
-  { question: "How can you leverage your existing strengths?", keywords: ["strength", "talent", "skill", "ability", "capability"] }
-];
-
 // Utility function
 function debounce(func, timeout = 100) {
   let timer;
@@ -178,7 +149,6 @@ export default function CoachingPage() {
   const [urgentQuestionsCount, setUrgentQuestionsCount] = useState(2);
   const [generatingQuestions, setGeneratingQuestions] = useState(false);
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
-  const [preloadedQuestions, setPreloadedQuestions] = useState([]);
   const [dialogueDuration, setDialogueDuration] = useState(0);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
@@ -595,31 +565,6 @@ export default function CoachingPage() {
       return `${secs}s`;
     }
   };
-
-  // Initialize preloaded questions (all of them)
-  useEffect(() => {
-    setPreloadedQuestions([...QUESTION_BANK]);
-  }, []);
-
-  // Highlight relevant questions based on current dialogue
-  const getHighlightedQuestions = useCallback(() => {
-    if (dialogueBufferRef.current.length === 0) return preloadedQuestions;
-
-    const recentText = dialogueBufferRef.current
-      .slice(-5)
-      .map(item => item.text.toLowerCase())
-      .join(' ');
-
-    return preloadedQuestions.map(item => ({
-      ...item,
-      relevance: item.keywords.reduce((score, keyword) => {
-        if (recentText.includes(keyword.toLowerCase())) {
-          return score + 1;
-        }
-        return score;
-      }, 0)
-    })).sort((a, b) => b.relevance - a.relevance);
-  }, [preloadedQuestions]);
 
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -1469,6 +1414,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     }
   };
 
+  // Use a question directly
+  const useQuestion = (question) => {
+    askAI(question, 'suggested');
+  };
+
   // Session Topic Management
   const addSessionTopic = () => {
     if (currentTopic.trim() && !sessionTopics.includes(currentTopic.trim())) {
@@ -1566,7 +1516,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               variant={isRecording ? "outlined" : "contained"}
               color={isRecording ? "error" : "success"}
               onClick={isRecording ? stopSessionRecording : startSessionRecording}
-              startIcon={isRecording ? <FiberManualRecordIcon /> : <FiberManualRecordIcon />}
+              startIcon={<FiberManualRecordIcon />}
               size="small"
             >
               {isRecording ? 'Stop' : 'Start'}
@@ -1831,6 +1781,93 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </Box>
   );
 
+  // Summary Card Component
+  const SummaryCard = () => (
+    <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <CardHeader
+        title="AI Coaching Insights"
+        avatar={<PsychologyIcon />}
+        subheader="Smart questions generated based on conversation flow"
+        sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
+      />
+      <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
+        <ScrollToBottom
+          className="scroll-to-bottom"
+          followButtonClassName="hidden-follow-button"
+        >
+          <Box sx={{ p: 2 }}>
+            {suggestedQuestions.length > 0 ? (
+              suggestedQuestions.map((question, index) => (
+                <Grow
+                  in={true}
+                  timeout={500 + (index * 100)}
+                  key={`question-${index}`}
+                >
+                  <Paper 
+                    sx={{ 
+                      p: 2, 
+                      mb: 2, 
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      border: index === 0 ? `2px solid ${theme.palette.primary.main}` : '1px solid',
+                      borderColor: index === 0 ? 'primary.main' : 'divider',
+                      bgcolor: index === 0 ? 'primary.50' : 'background.paper',
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        boxShadow: theme.shadows[4]
+                      }
+                    }}
+                    elevation={index === 0 ? 3 : 1}
+                    onClick={() => useQuestion(question)}
+                  >
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                      <Chip 
+                        label={`Q${index + 1}`} 
+                        size="small" 
+                        color={index === 0 ? "primary" : "default"}
+                        sx={{ mt: 0.5 }}
+                      />
+                      <Typography 
+                        variant={index === 0 ? "h6" : "body1"} 
+                        sx={{ 
+                          fontWeight: index === 0 ? 'bold' : 'normal',
+                          color: index === 0 ? 'primary.main' : 'text.primary'
+                        }}
+                      >
+                        {question}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grow>
+              ))
+            ) : (
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: 300,
+                textAlign: 'center'
+              }}>
+                <PsychologyIcon sx={{ fontSize: 64, color: 'grey.400', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
+                  {generatingQuestions ? 'Generating Questions...' : 'Ready to Generate Questions'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {generatingQuestions ? 
+                    'Please wait while we analyze the conversation...' : 
+                    'Click the Generate button or wait for auto-generation to begin'
+                  }
+                </Typography>
+                {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
+              </Box>
+            )}
+          </Box>
+        </ScrollToBottom>
+      </CardContent>
+    </Card>
+  );
+
   // Main Render
   return (
     <>
@@ -1889,7 +1926,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
         <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
           <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-            {/* Left Panel - Main Topic & Audio Controls */}
+            {/* Left Panel - Session Management & Audio Controls */}
             <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {/* Session Recording Card */}
               <SessionRecordingCard />
@@ -1929,7 +1966,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             </Grid>
 
             {/* Center Panel - Coaching Questions (Largest) */}
-            <Grid item xs={12} md={6} sx={{ display: 'flex', flexDirection: 'column' }}>
+            <Grid item xs={12} md={9} sx={{ display: 'flex', flexDirection: 'column' }}>
               <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
                 <CardHeader 
                   title="Coaching Questions"
@@ -1997,7 +2034,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                                 }
                               }}
                               elevation={index === 0 ? 3 : 1}
-                              onClick={() => askAI(question, 'suggested')}
+                              onClick={() => useQuestion(question)}
                             >
                               <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                                 <Chip 
@@ -2061,109 +2098,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                       >
                         Clear All
                       </Button>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-
-            {/* Right Panel - Smart Question Bank */}
-            <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column' }}>
-              {/* Question Bank (Smart Highlighting) */}
-              <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                <CardHeader
-                  title="Question Bank"
-                  avatar={<MenuBookIcon />}
-                  subheader={loadedQuestionBank.length > 0 ? 
-                    `${loadedQuestionBank.length} questions loaded - Smart highlighting based on dialogue` :
-                    "Load questions from file to access question bank"
-                  }
-                  sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
-                />
-                <CardContent sx={{ flexGrow: 1, overflow: 'hidden', p: 0 }}>
-                  {loadedQuestionBank.length > 0 ? (
-                    <ScrollToBottom
-                      className="scroll-to-bottom"
-                      followButtonClassName="hidden-follow-button"
-                    >
-                      <List sx={{ px: 1, py: 1 }} dense>
-                        {getHighlightedQuestions().map((item, index) => (
-                          <ListItem 
-                            key={index}
-                            sx={{ 
-                              cursor: 'pointer',
-                              borderRadius: 1,
-                              mb: 0.5,
-                              bgcolor: item.relevance > 0 ? 'warning.50' : 'transparent',
-                              border: item.relevance > 0 ? `1px solid ${theme.palette.warning.main}` : '1px solid transparent',
-                              '&:hover': {
-                                bgcolor: item.relevance > 0 ? 'warning.100' : 'action.hover'
-                              }
-                            }}
-                            onClick={() => askAI(item.question, 'preloaded')}
-                          >
-                            <ListItemText
-                              primary={
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  {item.relevance > 0 && (
-                                    <Chip 
-                                      label="Relevant" 
-                                      size="small" 
-                                      color="warning"
-                                      sx={{ fontSize: '0.7rem', height: 20 }}
-                                    />
-                                  )}
-                                  <Typography 
-                                    variant="body2" 
-                                    sx={{ 
-                                      fontWeight: item.relevance > 0 ? 'bold' : 'normal',
-                                      color: item.relevance > 0 ? 'warning.dark' : 'text.primary'
-                                    }}
-                                  >
-                                    {item.question}
-                                  </Typography>
-                                </Box>
-                              }
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </ScrollToBottom>
-                  ) : (
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      height: '100%',
-                      textAlign: 'center',
-                      p: 3
-                    }}>
-                      <MenuBookIcon sx={{ fontSize: 64, color: 'grey.400', mb: 2 }} />
-                      <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                        No Question Bank Loaded
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                        Upload a JSON or TXT file containing coaching questions to access the question bank feature.
-                      </Typography>
-                      
-                      <input
-                        accept=".json,.txt"
-                        style={{ display: 'none' }}
-                        id="question-bank-upload-empty"
-                        type="file"
-                        onChange={handleQuestionBankUpload}
-                      />
-                      <label htmlFor="question-bank-upload-empty">
-                        <Button
-                          variant="contained"
-                          component="span"
-                          startIcon={<MenuBookIcon />}
-                          color="primary"
-                        >
-                          Load Questions
-                        </Button>
-                      </label>
                     </Box>
                   )}
                 </CardContent>
@@ -2248,5 +2182,3 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </>
   );
 }
-
-

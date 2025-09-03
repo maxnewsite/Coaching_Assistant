@@ -105,7 +105,7 @@ export default function LandingPage() {
           <Typography variant="h5" component="p" paragraph sx={{ mb: 4, opacity: 0.9 }}>
             Elevate your executive coaching sessions with AI-powered real-time transcription, intelligent insights, and smart question generation. Focus on your client, let us handle the support.
           </Typography>
-          <Link href="/coaching" passHref>
+          <Link href="/coaching2" passHref>
             <Button
               variant="contained"
               color="secondary"
@@ -175,3 +175,4 @@ export default function LandingPage() {
     </>
   );
 }
+

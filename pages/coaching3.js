@@ -1,4 +1,4 @@
-// pages/coaching3.js - Simplified Executive Coaching Assistant (Fixed)
+// pages/coaching.js - Simplified Executive Coaching Dashboard with Transcription Download
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -21,33 +21,39 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Fab,
+  Divider,
   FormControl,
+  FormControlLabel,
   Grid,
   IconButton,
   InputLabel,
-  LinearProgress,
   List,
   ListItem,
+  ListItemIcon,
   ListItemText,
   MenuItem,
   Paper,
   Select,
   Snackbar,
+  Switch,
   TextField,
   Toolbar,
   Tooltip,
   Typography,
-  useTheme,
-  Grow,
-  Badge
+  useTheme
 } from '@mui/material';
 
 // MUI Icons
+import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DownloadIcon from '@mui/icons-material/Download';
+import FlagIcon from '@mui/icons-material/Flag';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import LiveHelpIcon from '@mui/icons-material/LiveHelp';
 import MicIcon from '@mui/icons-material/Mic';
 import MicOffIcon from '@mui/icons-material/MicOff';
+import PersonIcon from '@mui/icons-material/Person';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
@@ -56,22 +62,12 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import StopScreenShareIcon from '@mui/icons-material/StopScreenShare';
 import TimerIcon from '@mui/icons-material/Timer';
-import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import DownloadIcon from '@mui/icons-material/Download';
-import TopicIcon from '@mui/icons-material/Topic';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import ErrorIcon from '@mui/icons-material/Error';
-import SignalWifiStatusbar4BarIcon from '@mui/icons-material/SignalWifiStatusbar4Bar';
-import HistoryIcon from '@mui/icons-material/History';
-import SaveIcon from '@mui/icons-material/Save';
-import TranscribeIcon from '@mui/icons-material/Transcribe';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import throttle from 'lodash.throttle';
 import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
 import OpenAI from 'openai';
-import ScrollToBottom from 'react-scroll-to-bottom';
 
 // Local Imports
 import SettingsDialog from '../components/SettingsDialog';
@@ -80,6 +76,17 @@ import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
+
+// Utility function
+function debounce(func, timeout = 100) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      func.apply(this, args);
+    }, timeout);
+  };
+}
 
 export default function CoachingPage() {
   const dispatch = useDispatch();
@@ -96,6 +103,13 @@ export default function CoachingPage() {
   const [isCoachMicActive, setIsCoachMicActive] = useState(false);
   const [isCoacheeMicActive, setIsCoacheeMicActive] = useState(false);
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
+  const [coachTranscription, setCoachTranscription] = useState('');
+  const [coacheeAutoMode, setCoacheeAutoMode] = useState(appConfig.coacheeAutoMode !== undefined ? appConfig.coacheeAutoMode : true);
+  const [isManualMode, setIsManualMode] = useState(appConfig.isManualMode !== undefined ? appConfig.isManualMode : false);
+
+  // Speaking Status States
+  const [isCoacheeSpeaking, setIsCoacheeSpeaking] = useState(false);
+  const [isCoachSpeaking, setIsCoachSpeaking] = useState(false);
 
   // AI & Processing States
   const [aiClient, setAiClient] = useState(null);
@@ -116,37 +130,39 @@ export default function CoachingPage() {
   const [dialogueDuration, setDialogueDuration] = useState(0);
   const [isDialogueActive, setIsDialogueActive] = useState(false);
 
-  // Current Topic States
-  const [currentMainTopic, setCurrentMainTopic] = useState('');
-  const [summaryTimer, setSummaryTimer] = useState(0);
-  const [generatingTopic, setGeneratingTopic] = useState(false);
+  // Pre-loaded Questions States
+  const [preloadedQuestions, setPreloadedQuestions] = useState([
+    "What would you like to achieve from this conversation?",
+    "What's working well for you right now?",
+    "What obstacles are you currently facing?",
+    "How do you see this situation differently now?",
+    "What would you do if you knew you couldn't fail?",
+    "What's one small step you could take today?",
+    "What patterns do you notice in your approach?",
+    "How has your thinking shifted during our conversation?",
+    "What support would be most helpful right now?",
+    "What are you learning about yourself through this?"
+  ]);
+  const [activeQuestions, setActiveQuestions] = useState([]);
+  const [newQuestionText, setNewQuestionText] = useState('');
+  const [addQuestionDialog, setAddQuestionDialog] = useState(false);
 
-  // Simplified Session Recording States
-  const [sessionRecording, setSessionRecording] = useState({
-    sessionId: null,
-    startTime: null,
-    endTime: null,
-    duration: 0,
-    language: 'en',
-    conversation: [], // Simplified: just chronological conversation
-    aiQuestions: [], // Only AI-generated coaching questions
-    topics: []
-  });
-  const [isRecording, setIsRecording] = useState(false);
-
-  // Transcription Status
-  const [coachTranscriptionStatus, setCoachTranscriptionStatus] = useState('idle');
-  const [coacheeTranscriptionStatus, setCoacheeTranscriptionStatus] = useState('idle');
-  const [lastCoachActivity, setLastCoachActivity] = useState(null);
-  const [lastCoacheeActivity, setLastCoacheeActivity] = useState(null);
+  // Session Transcription State
+  const [sessionTranscript, setSessionTranscript] = useState([]);
+  const [sessionStartTime, setSessionStartTime] = useState(null);
 
   // Refs
+  const coachInterimTranscription = useRef('');
+  const coacheeInterimTranscription = useRef('');
+  const silenceTimer = useRef(null);
+  const finalTranscript = useRef({ coach: '', coachee: '' });
+  const isManualModeRef = useRef(isManualMode);
+  const coacheeAutoModeRef = useRef(coacheeAutoMode);
+  const throttledDispatchSetAIResponseRef = useRef(null);
   const dialogueTimerRef = useRef(null);
-  const summaryTimerRef = useRef(null);
+  const lastQuestionTimeRef = useRef(Date.now());
   const dialogueBufferRef = useRef([]);
-  const systemAudioStreamRef = useRef(null);
-  const speechBufferRef = useRef({ coach: '', coachee: '' });
-  const silenceTimerRef = useRef(null);
+  const speakingTimerRef = useRef(null);
 
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -157,141 +173,53 @@ export default function CoachingPage() {
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
-  // Session Recording Functions
-  const startSessionRecording = () => {
-    const startTime = new Date();
-    const sessionId = `coaching_${startTime.toISOString().replace(/[:.]/g, '_')}`;
-    
-    const newSessionRecording = {
-      sessionId,
-      startTime: startTime.toISOString(),
-      endTime: null,
-      duration: 0,
-      language: appConfig.azureLanguage || 'en-US',
-      conversation: [],
-      aiQuestions: [],
-      topics: []
-    };
-
-    setSessionRecording(newSessionRecording);
-    setIsRecording(true);
-    showSnackbar('Session recording started', 'success');
-  };
-
-  const stopSessionRecording = () => {
-    if (!isRecording) return;
-
-    const endTime = new Date();
-    const startTime = new Date(sessionRecording.startTime);
-    const duration = Math.floor((endTime - startTime) / 1000);
-
-    setSessionRecording(prev => ({
-      ...prev,
-      endTime: endTime.toISOString(),
-      duration: duration
-    }));
-
-    setIsRecording(false);
-    
-    // Stop all audio recording
-    if (isCoachMicActive) stopRecording('coach');
-    if (isCoacheeMicActive) stopRecording('coachee');
-    if (isSystemAudioActive) stopRecording('system');
-    
-    // Stop dialogue
-    setIsDialogueActive(false);
-    
-    showSnackbar('Session recording stopped', 'info');
-  };
-
-  // Add conversation entry to session recording
-  const addConversationEntry = useCallback((text, speaker) => {
-    if (!isRecording || !text.trim()) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      conversation: [
-        ...prev.conversation,
-        {
-          timestamp: new Date().toISOString(),
-          speaker: speaker, // 'coach' or 'coachee'
-          text: text.trim()
-        }
-      ]
-    }));
-  }, [isRecording]);
-
-  // Add AI question to session recording
-  const addAIQuestionToSession = useCallback((questions) => {
-    if (!isRecording || !questions.length) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      aiQuestions: [
-        ...prev.aiQuestions,
-        {
-          timestamp: new Date().toISOString(),
-          questions: questions
-        }
-      ]
-    }));
-  }, [isRecording]);
-
-  // Add topic to session recording
-  const addTopicToSession = useCallback((topic) => {
-    if (!isRecording || !topic.trim()) return;
-
-    setSessionRecording(prev => ({
-      ...prev,
-      topics: [
-        ...prev.topics,
-        {
-          timestamp: new Date().toISOString(),
-          topic: topic.trim()
-        }
-      ]
-    }));
-  }, [isRecording]);
-
-  // Export simplified session data
-  const exportSession = () => {
-    if (!sessionRecording.sessionId) {
-      showSnackbar('No session to export', 'warning');
+  // Download Transcription Function
+  const downloadTranscription = () => {
+    if (sessionTranscript.length === 0) {
+      showSnackbar('No transcription data to download', 'warning');
       return;
     }
 
-    // Create simple export format
-    const exportData = {
-      sessionInfo: {
-        sessionId: sessionRecording.sessionId,
-        startTime: sessionRecording.startTime,
-        endTime: sessionRecording.endTime,
-        duration: `${Math.floor(sessionRecording.duration / 60)}:${(sessionRecording.duration % 60).toString().padStart(2, '0')}`,
-        language: sessionRecording.language
-      },
-      conversation: sessionRecording.conversation,
-      aiQuestions: sessionRecording.aiQuestions,
-      topics: sessionRecording.topics,
-      summary: {
-        totalEntries: sessionRecording.conversation.length,
-        coachEntries: sessionRecording.conversation.filter(e => e.speaker === 'coach').length,
-        coacheeEntries: sessionRecording.conversation.filter(e => e.speaker === 'coachee').length,
-        aiQuestionsGenerated: sessionRecording.aiQuestions.reduce((sum, q) => sum + q.questions.length, 0),
-        topicsDiscussed: sessionRecording.topics.length
-      }
-    };
+    // Prepare CSV content
+    const csvHeaders = ['Timestamp', 'Elapsed Time (seconds)', 'Speaker', 'Text'];
+    const csvRows = sessionTranscript.map(item => {
+      const timestamp = new Date(item.timestamp).toLocaleString();
+      const elapsedSeconds = sessionStartTime ? 
+        Math.floor((item.timestamp - sessionStartTime) / 1000) : 0;
+      // Escape quotes in text and wrap in quotes if contains comma
+      const escapedText = item.text.replace(/"/g, '""');
+      const textCell = escapedText.includes(',') ? `"${escapedText}"` : escapedText;
+      
+      return [
+        timestamp,
+        elapsedSeconds,
+        item.source.charAt(0).toUpperCase() + item.source.slice(1),
+        textCell
+      ].join(',');
+    });
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    // Combine headers and rows
+    const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${sessionRecording.sessionId}_session.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    showSnackbar('Session exported successfully', 'success');
+    
+    // Generate filename with date and time
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const filename = `coaching-session-${dateStr}-${timeStr}.csv`;
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showSnackbar('Transcription downloaded successfully', 'success');
   };
 
   // Settings Management
@@ -299,6 +227,8 @@ export default function CoachingPage() {
     const newConfig = getConfig();
     setAppConfig(newConfig);
     setIsAILoading(true);
+    setCoacheeAutoMode(newConfig.coacheeAutoMode !== undefined ? newConfig.coacheeAutoMode : true);
+    setIsManualMode(newConfig.isManualMode !== undefined ? newConfig.isManualMode : false);
     showSnackbar('Settings saved successfully', 'success');
   };
 
@@ -352,14 +282,32 @@ export default function CoachingPage() {
     if (isAILoading) initializeAI();
   }, [appConfig, isAILoading, showSnackbar]);
 
+  // Throttled AI Response Dispatch
+  useEffect(() => {
+    throttledDispatchSetAIResponseRef.current = throttle((payload) => {
+      dispatch(setAIResponse(payload));
+    }, 250, { leading: true, trailing: true });
+
+    return () => {
+      if (throttledDispatchSetAIResponseRef.current?.cancel) {
+        throttledDispatchSetAIResponseRef.current.cancel();
+      }
+    };
+  }, [dispatch]);
+
   // Dialogue Timer Management
   useEffect(() => {
     if (isDialogueActive) {
+      // Set session start time if not already set
+      if (!sessionStartTime) {
+        setSessionStartTime(Date.now());
+      }
+      
       dialogueTimerRef.current = setInterval(() => {
         setDialogueDuration(prev => {
           const newDuration = prev + 1;
           
-          // Auto-generate questions every configured interval
+          // Check if we should auto-generate questions
           if (appConfig.autoSuggestQuestions && 
               newDuration >= appConfig.dialogueListenDuration &&
               newDuration % appConfig.dialogueListenDuration === 0) {
@@ -380,91 +328,11 @@ export default function CoachingPage() {
         clearInterval(dialogueTimerRef.current);
       }
     };
-  }, [isDialogueActive, appConfig]);
+  }, [isDialogueActive, appConfig, sessionStartTime]);
 
-  // Topic Generation Timer (every 2 minutes)
-  useEffect(() => {
-    if (isDialogueActive) {
-      summaryTimerRef.current = setInterval(() => {
-        setSummaryTimer(prev => {
-          const newTimer = prev + 1;
-          if (newTimer >= 120) {
-            generateMainTopic();
-            return 0;
-          }
-          return newTimer;
-        });
-      }, 1000);
-    } else {
-      if (summaryTimerRef.current) {
-        clearInterval(summaryTimerRef.current);
-      }
-    }
-    
-    return () => {
-      if (summaryTimerRef.current) {
-        clearInterval(summaryTimerRef.current);
-      }
-    };
-  }, [isDialogueActive]);
-
-  // Main Topic Generation Function
-  const generateMainTopic = async () => {
-    if (!aiClient || isAILoading || generatingTopic) return;
-    
-    const recentText = speechBufferRef.current.coachee.trim();
-    if (!recentText) return;
-
-    setGeneratingTopic(true);
-    
-    try {
-      const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
-      const prompt = `In ${language}, identify the main topic/theme being discussed in 3-5 words maximum. Based on: "${recentText.substring(0, 200)}"`;
-      
-      let topicResponse = '';
-      if (aiClient.type === 'anthropic') {
-        const response = await aiClient.client.messages.create({
-          model: appConfig.aiModel,
-          max_tokens: 50,
-          temperature: 0.3,
-          system: `You identify main themes in coaching conversations. Respond only with the main topic in ${language}, maximum 5 words.`,
-          messages: [{ role: 'user', content: prompt }]
-        });
-        topicResponse = response.content[0].text;
-      } else if (aiClient.type === 'openai') {
-        const response = await aiClient.client.chat.completions.create({
-          model: appConfig.aiModel,
-          messages: [
-            { role: 'system', content: `You identify main themes in coaching conversations. Respond only with the main topic in ${language}, maximum 5 words.` },
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 50
-        });
-        topicResponse = response.choices[0].message.content;
-      } else if (aiClient.type === 'gemini') {
-        const model = aiClient.client.getGenerativeModel({
-          model: appConfig.aiModel,
-          generationConfig: { temperature: 0.3, maxOutputTokens: 50 }
-        });
-        const result = await model.generateContent(prompt);
-        topicResponse = result.response.text();
-      }
-      
-      const newTopic = topicResponse.trim();
-      setCurrentMainTopic(newTopic);
-      addTopicToSession(newTopic);
-      
-      // Clear the buffer
-      speechBufferRef.current = { coach: '', coachee: '' };
-      
-    } catch (error) {
-      console.error('Error generating main topic:', error);
-      showSnackbar('Failed to generate main topic: ' + error.message, 'error');
-    } finally {
-      setGeneratingTopic(false);
-    }
-  };
+  // Update refs when states change
+  useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
+  useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
 
   // Speech Recognition Functions
   const createRecognizer = async (mediaStream, source) => {
@@ -489,23 +357,37 @@ export default function CoachingPage() {
 
     const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
-    // Update transcription status
-    if (source === 'coach') {
-      setCoachTranscriptionStatus('active');
-    } else {
-      setCoacheeTranscriptionStatus('active');
-    }
+    recognizer.recognizing = (s, e) => {
+      if (e.result.reason === SpeechSDK.ResultReason.RecognizingSpeech) {
+        const interimText = e.result.text;
+        if (source === 'coachee') {
+          coacheeInterimTranscription.current = interimText;
+          dispatch(setTranscription(finalTranscript.current.coachee + interimText));
+          // Set speaking status
+          setIsCoacheeSpeaking(true);
+          clearTimeout(speakingTimerRef.current);
+        } else {
+          coachInterimTranscription.current = interimText;
+          setCoachTranscription(finalTranscript.current.coach + interimText);
+          // Set speaking status
+          setIsCoachSpeaking(true);
+          clearTimeout(speakingTimerRef.current);
+        }
+      }
+    };
 
     recognizer.recognized = (s, e) => {
       if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
-        handleTranscriptionEvent(e.result.text, source);
-        
-        // Update activity time
-        if (source === 'coach') {
-          setLastCoachActivity(Date.now());
+        if (source === 'coachee') {
+          coacheeInterimTranscription.current = '';
+          // Clear speaking status after a short delay
+          speakingTimerRef.current = setTimeout(() => setIsCoacheeSpeaking(false), 1000);
         } else {
-          setLastCoacheeActivity(Date.now());
+          coachInterimTranscription.current = '';
+          // Clear speaking status after a short delay
+          speakingTimerRef.current = setTimeout(() => setIsCoachSpeaking(false), 1000);
         }
+        handleTranscriptionEvent(e.result.text, source);
       }
     };
 
@@ -515,12 +397,12 @@ export default function CoachingPage() {
         console.error(`CANCELED: ErrorCode=${e.errorCode}`);
         console.error(`CANCELED: ErrorDetails=${e.errorDetails}`);
         showSnackbar(`Speech recognition error for ${source}: ${e.errorDetails}`, 'error');
-        if (source === 'coach') {
-          setCoachTranscriptionStatus('error');
-        } else {
-          setCoacheeTranscriptionStatus('error');
-        }
       }
+      stopRecording(source);
+    };
+
+    recognizer.sessionStopped = (s, e) => {
+      console.log(`Session stopped event for ${source}.`);
       stopRecording(source);
     };
 
@@ -543,8 +425,6 @@ export default function CoachingPage() {
     if (recognizer?.stopContinuousRecognitionAsync) {
       try {
         await recognizer.stopContinuousRecognitionAsync();
-        
-        // Properly close the recognizer and audio config
         if (recognizer.audioConfig?.privSource?.privStream) {
           const stream = recognizer.audioConfig.privSource.privStream;
           if (stream instanceof MediaStream) {
@@ -554,32 +434,22 @@ export default function CoachingPage() {
         if (recognizer.audioConfig?.close) {
           recognizer.audioConfig.close();
         }
-        if (recognizer.close) {
-          recognizer.close();
-        }
-        
       } catch (error) {
         console.error(`Error stopping ${source} recognition:`, error);
         showSnackbar(`Error stopping ${source} audio: ${error.message}`, 'error');
       } finally {
-        // Update states
         if (source === 'coach') {
           setIsCoachMicActive(false);
           setCoachRecognizer(null);
-          setCoachTranscriptionStatus('idle');
+          setIsCoachSpeaking(false);
         } else if (source === 'coachee') {
           setIsCoacheeMicActive(false);
           setCoacheeRecognizer(null);
-          setCoacheeTranscriptionStatus('idle');
+          setIsCoacheeSpeaking(false);
         } else if (source === 'system') {
           setIsSystemAudioActive(false);
           setCoacheeRecognizer(null);
-          setCoacheeTranscriptionStatus('idle');
-          
-          if (systemAudioStreamRef.current) {
-            systemAudioStreamRef.current.getTracks().forEach(track => track.stop());
-            systemAudioStreamRef.current = null;
-          }
+          setIsCoacheeSpeaking(false);
         }
       }
     }
@@ -599,11 +469,7 @@ export default function CoachingPage() {
 
     try {
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100
-        },
+        audio: true,
         video: {
           displaySurface: 'browser',
           logicalSurface: true
@@ -617,8 +483,6 @@ export default function CoachingPage() {
         return;
       }
 
-      systemAudioStreamRef.current = mediaStream;
-
       if (coacheeRecognizer) {
         await stopRecording('system');
       }
@@ -628,7 +492,6 @@ export default function CoachingPage() {
         setCoacheeRecognizer(recognizerInstance);
         setIsSystemAudioActive(true);
         showSnackbar('System audio recording started for coachee.', 'success');
-        
         mediaStream.getTracks().forEach(track => {
           track.onended = () => {
             showSnackbar('Tab sharing ended.', 'info');
@@ -637,7 +500,6 @@ export default function CoachingPage() {
         });
       } else {
         mediaStream.getTracks().forEach(track => track.stop());
-        systemAudioStreamRef.current = null;
       }
     } catch (error) {
       console.error('System audio capture error:', error);
@@ -651,8 +513,6 @@ export default function CoachingPage() {
         showSnackbar(`Failed to start system audio capture: ${error.message || 'Unknown error'}`, 'error');
       }
       setIsSystemAudioActive(false);
-      setCoacheeTranscriptionStatus('idle');
-      systemAudioStreamRef.current = null;
     }
   };
 
@@ -664,18 +524,13 @@ export default function CoachingPage() {
       return;
     }
 
+    // For coachee, stop system audio if it's active
     if (source === 'coachee' && isSystemAudioActive) {
       await stopRecording('system');
     }
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100
-        }
-      });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const currentRecognizer = source === 'coach' ? coachRecognizer : coacheeRecognizer;
       
       if (currentRecognizer) await stopRecording(source);
@@ -702,36 +557,36 @@ export default function CoachingPage() {
       }
       if (source === 'coach') {
         setIsCoachMicActive(false);
-        setCoachTranscriptionStatus('idle');
       } else {
         setIsCoacheeMicActive(false);
-        setCoacheeTranscriptionStatus('idle');
       }
     }
   };
 
-  // Transcription Event Handler - SIMPLIFIED
+  // Transcription Event Handler
   const handleTranscriptionEvent = (text, source) => {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
-
-    // Add to conversation recording
-    addConversationEntry(cleanText, source);
 
     // Start dialogue tracking if not already active
     if (!isDialogueActive) {
       setIsDialogueActive(true);
     }
     
-    // Add to speech buffer for topic generation
-    speechBufferRef.current[source] += cleanText + ' ';
+    // Reset the last activity time
+    lastQuestionTimeRef.current = Date.now();
     
-    // Add to dialogue buffer for question generation context
-    dialogueBufferRef.current.push({
+    // Add to session transcript
+    const transcriptEntry = {
       text: cleanText,
       source: source,
       timestamp: Date.now()
-    });
+    };
+    
+    setSessionTranscript(prev => [...prev, transcriptEntry]);
+    
+    // Add to dialogue buffer for context
+    dialogueBufferRef.current.push(transcriptEntry);
     
     // Keep only recent dialogue (last 5 minutes)
     const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
@@ -739,11 +594,190 @@ export default function CoachingPage() {
       item => item.timestamp > fiveMinutesAgo
     );
 
-    // Show in real-time display
-    dispatch(setTranscription(cleanText));
+    // Update transcription
+    finalTranscript.current[source] += cleanText + ' ';
+    
+    if (source === 'coachee') {
+      dispatch(setTranscription(finalTranscript.current.coachee + coacheeInterimTranscription.current));
+    } else {
+      setCoachTranscription(finalTranscript.current.coach + coachInterimTranscription.current);
+    }
+
+    // Handle auto-submission with silence timer
+    if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
+      clearTimeout(silenceTimer.current);
+      silenceTimer.current = setTimeout(() => {
+        askAI(finalTranscript.current[source].trim(), source);
+      }, appConfig.silenceTimerDuration * 1000);
+    }
+  };
+
+  // AI Processing
+  const askAI = async (text, source) => {
+    if (!text.trim()) {
+      showSnackbar('No input text to process.', 'warning');
+      return;
+    }
+    if (!aiClient || isAILoading) {
+      showSnackbar('AI client is not ready. Please wait or check settings.', 'warning');
+      return;
+    }
+
+    const lengthSettings = {
+      concise: { temperature: 0.4, maxTokens: 250 },
+      medium: { temperature: 0.6, maxTokens: 500 },
+      lengthy: { temperature: 0.8, maxTokens: 1000 }
+    };
+    const { temperature, maxTokens } = lengthSettings[appConfig.responseLength || 'medium'];
+
+    setIsProcessing(true);
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let streamedResponse = '';
+
+    dispatch(addToHistory({ type: 'question', text, timestamp, source, status: 'pending' }));
+    dispatch(setAIResponse(''));
+
+    try {
+      const conversationHistoryForAPI = history
+        .filter(e => e.text && (e.type === 'question' || e.type === 'response') && e.status !== 'pending')
+        .slice(-6)
+        .map(event => ({
+          role: event.type === 'question' ? 'user' : 'assistant',
+          content: event.text,
+        }));
+
+      if (aiClient.type === 'anthropic') {
+        const response = await aiClient.client.messages.create({
+          model: appConfig.aiModel,
+          max_tokens: maxTokens,
+          temperature,
+          system: appConfig.systemPrompt,
+          messages: [
+            ...conversationHistoryForAPI,
+            { role: 'user', content: text }
+          ],
+          stream: true
+        });
+
+        for await (const chunk of response) {
+          if (chunk.type === 'content_block_delta') {
+            const chunkText = chunk.delta.text || '';
+            streamedResponse += chunkText;
+            if (throttledDispatchSetAIResponseRef.current) {
+              throttledDispatchSetAIResponseRef.current(streamedResponse);
+            }
+          }
+        }
+      } else if (aiClient.type === 'gemini') {
+        const model = aiClient.client.getGenerativeModel({
+          model: appConfig.aiModel,
+          generationConfig: { temperature, maxOutputTokens: maxTokens },
+          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
+        });
+        const chat = model.startChat({
+          history: conversationHistoryForAPI.map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
+          })),
+        });
+        const result = await chat.sendMessageStream(text);
+        for await (const chunk of result.stream) {
+          if (chunk?.text) {
+            const chunkText = chunk.text();
+            streamedResponse += chunkText;
+            if (throttledDispatchSetAIResponseRef.current) {
+              throttledDispatchSetAIResponseRef.current(streamedResponse);
+            }
+          }
+        }
+      } else {
+        const messages = [
+          { role: 'system', content: appConfig.systemPrompt },
+          ...conversationHistoryForAPI,
+          { role: 'user', content: text }
+        ];
+        const stream = await aiClient.client.chat.completions.create({
+          model: appConfig.aiModel,
+          messages,
+          temperature,
+          max_tokens: maxTokens,
+          stream: true,
+        });
+        for await (const chunk of stream) {
+          const chunkText = chunk.choices[0]?.delta?.content || '';
+          streamedResponse += chunkText;
+          if (throttledDispatchSetAIResponseRef.current) {
+            throttledDispatchSetAIResponseRef.current(streamedResponse);
+          }
+        }
+      }
+
+      if (throttledDispatchSetAIResponseRef.current?.cancel) {
+        throttledDispatchSetAIResponseRef.current.cancel();
+      }
+      dispatch(setAIResponse(streamedResponse));
+
+      const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
+
+      // Add AI response to session transcript
+      setSessionTranscript(prev => [...prev, {
+        text: streamedResponse,
+        source: 'ai',
+        timestamp: Date.now()
+      }]);
+
+    } catch (error) {
+      console.error("AI request error:", error);
+      const errorMessage = `AI request failed: ${error.message || 'Unknown error'}`;
+      showSnackbar(errorMessage, 'error');
+      dispatch(setAIResponse(`Error: ${errorMessage}`));
+      dispatch(addToHistory({ type: 'response', text: `Error: ${errorMessage}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'error' }));
+    } finally {
+      if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
+        finalTranscript.current[source] = '';
+        if (source === 'coachee') {
+          coacheeInterimTranscription.current = '';
+          dispatch(setTranscription(''));
+        } else {
+          coachInterimTranscription.current = '';
+          setCoachTranscription('');
+        }
+      }
+      setIsProcessing(false);
+    }
   };
 
   // Question Generation
+  const getLanguageInstructions = (azureLanguage) => {
+    const languageMap = {
+      'en-US': 'English',
+      'en-GB': 'English', 
+      'it-IT': 'Italian',
+      'fr-FR': 'French',
+      'es-ES': 'Spanish',
+      'de-DE': 'German',
+      'pt-PT': 'Portuguese',
+      'nl-NL': 'Dutch',
+      'ru-RU': 'Russian',
+      'ja-JP': 'Japanese',
+      'ko-KR': 'Korean',
+      'zh-CN': 'Chinese (Simplified)',
+      'zh-TW': 'Chinese (Traditional)'
+    };
+    
+    const language = languageMap[azureLanguage] || 'English';
+    
+    if (language === 'English') {
+      return 'Generate questions in English.';
+    }
+    
+    return `Generate questions in ${language}. Ensure the questions are:
+- Natural and fluent in ${language}
+- Culturally appropriate for ${language}-speaking contexts
+- Using proper coaching terminology in ${language}`;
+  };
+
   const generateCoachingQuestions = async (numQuestions = null) => {
     const questionsToGenerate = numQuestions || appConfig.numberOfQuestions || 2;
     
@@ -760,17 +794,22 @@ export default function CoachingPage() {
       .map(item => `${item.source}: ${item.text}`)
       .join('\n');
     
-    const language = appConfig.azureLanguage === 'it-IT' ? 'Italian' : 'English';
+    const questionStyle = analyzeDialogueForQuestionStyle(dialogueBufferRef.current);
+    const languageInstructions = getLanguageInstructions(appConfig.azureLanguage || 'en-US');
     
-    const prompt = `Generate exactly ${questionsToGenerate} powerful coaching questions in ${language} based on the conversation context. 
+    const prompt = `As an expert executive coach, generate exactly ${questionsToGenerate} powerful coaching question(s) based on the conversation context provided.
 
-Guidelines:
+${languageInstructions}
+
+Guidelines for powerful coaching questions:
 - Use open-ended questions that cannot be answered with yes/no
 - Keep questions short and clear (ideally under 15 words)
 - Focus on the coachee's thoughts, feelings, and actions
 - Avoid "why" questions when possible (use "what" or "how" instead)
 - Include questions that challenge assumptions
 - Ensure questions are non-judgmental and curious
+
+Style: ${questionStyle}
 
 Recent conversation context:
 ${recentDialogue || 'No recent dialogue captured yet.'}
@@ -785,7 +824,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           model: appConfig.aiModel,
           max_tokens: 200,
           temperature: 0.7,
-          system: `You are an expert executive coach. Generate powerful, open-ended coaching questions in ${language}.`,
+          system: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language.",
           messages: [{ role: 'user', content: prompt }]
         });
         questionsResponse = response.content[0].text;
@@ -794,7 +833,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         const response = await aiClient.client.chat.completions.create({
           model: appConfig.aiModel,
           messages: [
-            { role: 'system', content: `You are an expert executive coach. Generate powerful, open-ended coaching questions in ${language}.` },
+            { role: 'system', content: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language." },
             { role: 'user', content: prompt }
           ],
           temperature: 0.7,
@@ -814,11 +853,17 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       // Parse the questions
       const questions = parseQuestions(questionsResponse, questionsToGenerate);
       
-      // Add questions to session recording
-      addAIQuestionToSession(questions);
-      
       // Add newest questions to the TOP of the array
       setSuggestedQuestions(prev => [...questions, ...prev]);
+      
+      // Add to history
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      dispatch(addToHistory({ 
+        type: 'questions', 
+        text: `Suggested Questions:\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`,
+        timestamp,
+        status: 'completed'
+      }));
       
       showSnackbar(`Generated ${questions.length} coaching question(s)`, 'success');
       
@@ -830,15 +875,43 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     }
   };
 
-  // Use a question
-  const useQuestion = (question) => {
-    // Add to conversation as coach question
-    addConversationEntry(question, 'coach');
-    dispatch(setTranscription(`Coach: ${question}`));
-    showSnackbar('Question added to conversation', 'success');
+  // Pre-loaded Questions Management
+  const activateQuestion = (question) => {
+    if (activeQuestions.length >= 10) {
+      showSnackbar('Maximum 10 active questions. Remove one to add another.', 'warning');
+      return;
+    }
+    if (!activeQuestions.includes(question)) {
+      setActiveQuestions([...activeQuestions, question]);
+    }
+  };
+
+  const removeActiveQuestion = (question) => {
+    setActiveQuestions(activeQuestions.filter(q => q !== question));
+  };
+
+  const addCustomQuestion = () => {
+    if (newQuestionText.trim() && preloadedQuestions.length < 20) {
+      setPreloadedQuestions([...preloadedQuestions, newQuestionText.trim()]);
+      setNewQuestionText('');
+      setAddQuestionDialog(false);
+    }
   };
 
   // Component Definitions
+  const StatusIndicator = ({ isActive, isSpeaking, title, icon }) => (
+    <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isActive ? 'success.light' : 'grey.100' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+        {icon}
+        <Typography variant="subtitle2">{title}</Typography>
+        {isSpeaking && <FlagIcon sx={{ color: 'success.main', animation: 'pulse 1s infinite' }} />}
+      </Box>
+      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+        {isActive ? (isSpeaking ? 'Speaking...' : 'Listening') : 'Inactive'}
+      </Typography>
+    </Paper>
+  );
+
   const UrgentQuestionsDialog = () => (
     <Dialog open={urgentQuestionsDialog} onClose={() => setUrgentQuestionsDialog(false)} maxWidth="sm" fullWidth>
       <DialogTitle>
@@ -889,457 +962,314 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </Dialog>
   );
 
-  // Session Recording Card Component
-  const SessionRecordingCard = () => (
-    <Card sx={{ mb: 2 }}>
-      <CardHeader 
-        title="Session Recording"
-        avatar={
-          <Badge 
-            color={isRecording ? "success" : "default"}
-            variant="dot"
-            sx={{
-              '& .MuiBadge-badge': {
-                animation: isRecording ? 'pulse 2s infinite' : 'none'
-              }
-            }}
-          >
-            <HistoryIcon />
-          </Badge>
-        }
-        subheader={isRecording ? `Recording for ${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}` : 'Not recording'}
-        action={
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Tooltip title="Export Session">
-              <IconButton 
-                onClick={exportSession} 
-                disabled={!sessionRecording.sessionId}
-                color="primary"
-              >
-                <DownloadIcon />
-              </IconButton>
-            </Tooltip>
-            <Button
-              variant={isRecording ? "outlined" : "contained"}
-              color={isRecording ? "error" : "success"}
-              onClick={isRecording ? stopSessionRecording : startSessionRecording}
-              startIcon={<FiberManualRecordIcon />}
-              size="small"
-            >
-              {isRecording ? 'Stop' : 'Start'}
-            </Button>
-          </Box>
-        }
-        sx={{ pb: 1 }}
-      />
-      <CardContent>
-        {isRecording && (
-          <>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6" color="primary">
-                  {sessionRecording.conversation.filter(e => e.speaker === 'coach').length}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Coach Entries
-                </Typography>
-              </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6" color="secondary">
-                  {sessionRecording.conversation.filter(e => e.speaker === 'coachee').length}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Coachee Entries
-                </Typography>
-              </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6" color="info.main">
-                  {sessionRecording.aiQuestions.reduce((sum, q) => sum + q.questions.length, 0)}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  AI Questions
-                </Typography>
-              </Box>
-            </Box>
-            
-            <LinearProgress 
-              variant="indeterminate" 
-              sx={{ height: 4, borderRadius: 2, mb: 2 }}
-              color="success"
-            />
-
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Chip 
-                label={`${sessionRecording.conversation.length} Entries`} 
-                size="small" 
-                variant="outlined"
-              />
-              <Chip 
-                label={`${sessionRecording.topics.length} Topics`} 
-                size="small" 
-                variant="outlined"
-              />
-            </Box>
-          </>
-        )}
-
-        {!isRecording && sessionRecording.sessionId && (
-          <Box sx={{ textAlign: 'center', py: 2 }}>
-            <SaveIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
-            <Typography variant="h6" color="text.secondary">
-              Session Data Available
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {sessionRecording.conversation.length} conversation entries recorded
-            </Typography>
-          </Box>
-        )}
-
-        {!isRecording && !sessionRecording.sessionId && (
-          <Box sx={{ textAlign: 'center', py: 2 }}>
-            <TranscribeIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
-            <Typography variant="h6" color="text.secondary">
-              Ready to Record
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Start recording to capture session data
-            </Typography>
-          </Box>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  // Main Topic Card Component
-  const MainTopicCard = () => (
-    <Card sx={{ mb: 2 }}>
-      <CardHeader 
-        title="Current Main Topic"
-        avatar={<TopicIcon />}
-        subheader={`Next update in ${Math.floor((120 - summaryTimer) / 60)}:${((120 - summaryTimer) % 60).toString().padStart(2, '0')}`}
-        sx={{ pb: 1 }}
-      />
-      <CardContent>
-        {currentMainTopic ? (
-          <Paper 
-            sx={{ 
-              p: 3,
-              bgcolor: 'primary.50',
-              border: `2px solid ${theme.palette.primary.main}`,
-              textAlign: 'center'
-            }}
-            elevation={3}
-          >
-            <Typography 
-              variant="h5" 
-              sx={{ 
-                fontWeight: 'bold',
-                mb: 1,
-                color: 'primary.main'
-              }}
-            >
-              {currentMainTopic}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Typography>
-          </Paper>
-        ) : (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <TopicIcon sx={{ fontSize: 48, color: 'grey.400', mb: 1 }} />
-            <Typography variant="h6" color="text.secondary">
-              {generatingTopic ? 'Analyzing topic...' : 'Topic will appear during active dialogue'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {generatingTopic ? 'Please wait while we identify the main theme...' : 'Main topic updates every 2 minutes'}
-            </Typography>
-            {generatingTopic && <CircularProgress sx={{ mt: 2 }} />}
-          </Box>
-        )}
-        
-        <LinearProgress 
-          variant="determinate" 
-          value={(summaryTimer / 120) * 100}
-          sx={{ mt: 2, height: 6, borderRadius: 3 }}
-          color="primary"
+  const AddQuestionDialog = () => (
+    <Dialog open={addQuestionDialog} onClose={() => setAddQuestionDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>Add Custom Question</DialogTitle>
+      <DialogContent>
+        <TextField
+          fullWidth
+          multiline
+          rows={3}
+          value={newQuestionText}
+          onChange={(e) => setNewQuestionText(e.target.value)}
+          placeholder="Enter your custom coaching question..."
+          sx={{ mt: 1 }}
         />
-      </CardContent>
-    </Card>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setAddQuestionDialog(false)}>Cancel</Button>
+        <Button 
+          onClick={addCustomQuestion}
+          variant="contained"
+          disabled={!newQuestionText.trim()}
+        >
+          Add Question
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
-
-  // Transcription Status Component
-  const TranscriptionStatus = () => {
-    const getStatusColor = (status) => {
-      switch (status) {
-        case 'active': return 'success';
-        case 'error': return 'error';
-        default: return 'grey';
-      }
-    };
-
-    const getStatusIcon = (status) => {
-      switch (status) {
-        case 'active': return <CheckCircleIcon fontSize="small" />;
-        case 'error': return <ErrorIcon fontSize="small" />;
-        default: return <SignalWifiStatusbar4BarIcon fontSize="small" />;
-      }
-    };
-
-    const getStatusText = (status, lastActivity, isActive) => {
-      if (status === 'error') return 'Error';
-      if (status === 'active' && isActive) {
-        if (lastActivity && Date.now() - lastActivity < 5000) {
-          return 'Active';
-        }
-        return 'Listening';
-      }
-      return 'Idle';
-    };
-
-    return (
-      <Card sx={{ mb: 2 }}>
-        <CardHeader 
-          title="Audio Status"
-          avatar={<SignalWifiStatusbar4BarIcon />}
-          sx={{ pb: 1 }}
-        />
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {getStatusIcon(coacheeTranscriptionStatus)}
-              <Typography variant="body2" color={`${getStatusColor(coacheeTranscriptionStatus)}.main`}>
-                Coachee: {getStatusText(coacheeTranscriptionStatus, lastCoacheeActivity, isSystemAudioActive || isCoacheeMicActive)}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {getStatusIcon(coachTranscriptionStatus)}
-              <Typography variant="body2" color={`${getStatusColor(coachTranscriptionStatus)}.main`}>
-                Coach: {getStatusText(coachTranscriptionStatus, lastCoachActivity, isCoachMicActive)}
-              </Typography>
-            </Box>
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
-            {(coacheeTranscriptionStatus === 'active' || coachTranscriptionStatus === 'active') ? (
-              <>
-                <CheckCircleIcon color="success" fontSize="small" />
-                <Typography variant="caption" color="success.main">
-                  Audio transcription working
-                </Typography>
-              </>
-            ) : (
-              <>
-                <SignalWifiStatusbar4BarIcon color="info" fontSize="small" />
-                <Typography variant="caption" color="text.secondary">
-                  Ready to capture audio
-                </Typography>
-              </>
-            )}
-          </Box>
-        </CardContent>
-      </Card>
-    );
-  };
 
   // Main Render
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant - Simplified</title>
+        <title>Executive Coaching Assistant - Simplified Dashboard</title>
       </Head>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <AppBar position="static" color="default" elevation={1}>
           <Toolbar>
             <SmartToyIcon sx={{ mr: 2, color: 'primary.main' }} />
             <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'text.primary' }}>
-              Executive Coaching Assistant
+              Executive Coaching Assistant - Simplified
             </Typography>
             
-            {/* Recording Status */}
-            {isRecording && (
-              <Chip
-                icon={<FiberManualRecordIcon sx={{ animation: 'pulse 2s infinite' }} />}
-                label="Recording"
-                color="error"
-                variant="outlined"
-                sx={{ mr: 2 }}
-              />
-            )}
-            
-            {/* Session Timer */}
+            {/* Dialogue Duration Indicator */}
             {isDialogueActive && (
               <Chip
                 icon={<TimerIcon />}
-                label={`${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}`}
+                label={`Session: ${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}`}
                 color="primary"
                 variant="outlined"
                 sx={{ mr: 2 }}
               />
             )}
             
+            {/* Download Transcription Button */}
+            <Tooltip title={sessionTranscript.length > 0 ? "Download session transcript" : "No transcript data yet"}>
+              <span>
+                <IconButton 
+                  color="primary" 
+                  onClick={downloadTranscription} 
+                  disabled={sessionTranscript.length === 0}
+                  aria-label="download transcript"
+                  sx={{ mr: 1 }}
+                >
+                  <DownloadIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            
             <Tooltip title="Settings">
-              <IconButton color="primary" onClick={() => setSettingsOpen(true)}>
+              <IconButton color="primary" onClick={() => setSettingsOpen(true)} aria-label="settings">
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
           </Toolbar>
         </AppBar>
 
-        <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2, display: 'flex', flexDirection: 'column' }}>
-          <Grid container spacing={2} sx={{ flexGrow: 1 }}>
-            {/* Left Panel - Session Management */}
-            <Grid item xs={12} md={3} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <SessionRecordingCard />
-              <MainTopicCard />
-              <TranscriptionStatus />
-              
-              <Card>
-                <CardHeader title="Audio Controls" avatar={<RecordVoiceOverIcon />} sx={{ pb: 1 }} />
-                <CardContent>
-                  <Button
-                    onClick={startSystemAudioRecognition}
-                    variant="contained"
-                    color={isSystemAudioActive ? 'error' : 'primary'}
-                    startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
-                    fullWidth
-                    size="large"
-                    sx={{ mb: 2 }}
-                  >
-                    {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
-                  </Button>
-                  
-                  <Button
-                    onClick={() => startMicrophoneRecognition('coach')}
-                    variant="outlined"
-                    color={isCoachMicActive ? 'error' : 'primary'}
-                    startIcon={isCoachMicActive ? <MicOffIcon /> : <MicIcon />}
-                    fullWidth
-                  >
-                    {isCoachMicActive ? 'Stop Coach Mic' : 'Start Coach Mic'}
-                  </Button>
-                </CardContent>
-              </Card>
+        <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2 }}>
+          <Grid container spacing={3} sx={{ height: '100%' }}>
+            {/* Top Row - Status Indicators */}
+            <Grid item xs={12}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={3}>
+                  <StatusIndicator
+                    isActive={isSystemAudioActive || isCoacheeMicActive}
+                    isSpeaking={isCoacheeSpeaking}
+                    title="Coachee Status"
+                    icon={<RecordVoiceOverIcon />}
+                  />
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <StatusIndicator
+                    isActive={isCoachMicActive}
+                    isSpeaking={isCoachSpeaking}
+                    title="Coach Status"
+                    icon={<PersonIcon />}
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isProcessing ? 'warning.light' : 'info.light' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                      <SmartToyIcon />
+                      <Typography variant="subtitle2">AI Assistant</Typography>
+                      {isProcessing && <CircularProgress size={20} />}
+                    </Box>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                      {isProcessing ? 'Processing...' : 'Ready'}
+                      {sessionTranscript.length > 0 && (
+                        <Typography variant="caption" sx={{ display: 'block' }}>
+                          ({sessionTranscript.length} entries captured)
+                        </Typography>
+                      )}
+                    </Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
             </Grid>
 
-            {/* Right Panel - Coaching Questions */}
-            <Grid item xs={12} md={9} sx={{ display: 'flex', flexDirection: 'column' }}>
-              <Card sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                <CardHeader 
-                  title="AI Coaching Questions"
+            {/* Control Buttons Row */}
+            <Grid item xs={12}>
+              <Paper sx={{ p: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      onClick={startSystemAudioRecognition}
+                      variant="contained"
+                      color={isSystemAudioActive ? 'error' : 'primary'}
+                      startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
+                      fullWidth
+                    >
+                      {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      onClick={() => startMicrophoneRecognition('coach')}
+                      variant="contained"
+                      color={isCoachMicActive ? 'error' : 'primary'}
+                      startIcon={isCoachMicActive ? <MicOffIcon /> : <MicIcon />}
+                      fullWidth
+                    >
+                      {isCoachMicActive ? 'Stop Coach Mic' : 'Start Coach Mic'}
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
+                      variant="contained"
+                      color="secondary"
+                      startIcon={generatingQuestions ? <CircularProgress size={16} color="inherit" /> : <PsychologyIcon />}
+                      fullWidth
+                      disabled={generatingQuestions || !aiClient || isAILoading}
+                    >
+                      {generatingQuestions ? 'Generating...' : 'Generate Questions'}
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      onClick={downloadTranscription}
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<DownloadIcon />}
+                      fullWidth
+                      disabled={sessionTranscript.length === 0}
+                    >
+                      Download Session
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Questions Section */}
+            <Grid item xs={12} md={8}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardHeader
+                  title="AI Suggested Questions"
                   avatar={<QuestionAnswerIcon />}
                   action={
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      <Tooltip title="Generate Questions Now">
-                        <IconButton 
-                          onClick={() => setUrgentQuestionsDialog(true)}
-                          color="primary"
-                          disabled={generatingQuestions}
-                        >
-                          {generatingQuestions ? <CircularProgress size={20} /> : <LiveHelpIcon />}
-                        </IconButton>
-                      </Tooltip>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
-                        disabled={generatingQuestions}
-                        startIcon={generatingQuestions ? <CircularProgress size={16} /> : <PsychologyIcon />}
-                      >
-                        Generate {appConfig.numberOfQuestions || 2}
-                      </Button>
-                    </Box>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setUrgentQuestionsDialog(true)}
+                      startIcon={<HelpOutlineIcon />}
+                    >
+                      Custom
+                    </Button>
                   }
-                  sx={{ pb: 1 }}
+                  sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
                 />
-                <CardContent sx={{ flexGrow: 1, overflow: 'hidden' }}>
+                <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
                   {suggestedQuestions.length > 0 ? (
-                    <ScrollToBottom className="scroll-to-bottom" followButtonClassName="hidden-follow-button">
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {suggestedQuestions.map((question, index) => (
-                          <Grow
-                            in={true}
-                            timeout={500 + (index * 100)}
-                            key={`question-${index}`}
+                    <List>
+                      {suggestedQuestions.map((question, index) => (
+                        <ListItem key={index} sx={{ bgcolor: index < 3 ? 'action.hover' : 'transparent', mb: 1, borderRadius: 1 }}>
+                          <ListItemIcon>
+                            <Chip label={`Q${index + 1}`} size="small" color="primary" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={question}
+                            primaryTypographyProps={{ variant: 'body1', fontWeight: index < 3 ? 'medium' : 'normal' }}
+                          />
+                          <IconButton
+                            onClick={() => activateQuestion(question)}
+                            color="primary"
+                            size="small"
                           >
-                            <Paper 
-                              sx={{ 
-                                p: 3,
-                                bgcolor: index === 0 ? 'primary.50' : 'background.paper',
-                                border: index === 0 ? `2px solid ${theme.palette.primary.main}` : '1px solid',
-                                borderColor: index === 0 ? 'primary.main' : 'divider',
-                                cursor: 'pointer',
-                                transition: 'all 0.3s ease',
-                                '&:hover': {
-                                  transform: 'translateY(-2px)',
-                                  boxShadow: theme.shadows[4]
-                                }
-                              }}
-                              elevation={index === 0 ? 3 : 1}
-                              onClick={() => useQuestion(question)}
-                            >
-                              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-                                <Chip 
-                                  label={`Q${index + 1}`} 
-                                  size="small" 
-                                  color={index === 0 ? "primary" : "default"}
-                                  sx={{ mt: 0.5 }}
-                                />
-                                <Typography 
-                                  variant={index === 0 ? "h6" : "body1"} 
-                                  sx={{ 
-                                    fontWeight: index === 0 ? 'bold' : 'normal',
-                                    color: index === 0 ? 'primary.main' : 'text.primary'
-                                  }}
-                                >
-                                  {question}
-                                </Typography>
-                              </Box>
-                            </Paper>
-                          </Grow>
-                        ))}
-                      </Box>
-                    </ScrollToBottom>
+                            <AddIcon />
+                          </IconButton>
+                        </ListItem>
+                      ))}
+                    </List>
                   ) : (
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      height: '100%',
-                      textAlign: 'center'
-                    }}>
-                      <PsychologyIcon sx={{ fontSize: 64, color: 'grey.400', mb: 2 }} />
-                      <Typography variant="h6" color="text.secondary" sx={{ mb: 1 }}>
-                        {generatingQuestions ? 'Generating Questions...' : 'Ready to Generate Questions'}
-                      </Typography>
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
                       <Typography variant="body2" color="text.secondary">
-                        {generatingQuestions ? 
-                          'Please wait while we analyze the conversation...' : 
-                          'Click Generate or wait for auto-generation'
-                        }
+                        {generatingQuestions ? 'Generating questions...' : 'No questions generated yet.'}
                       </Typography>
                       {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
                     </Box>
                   )}
-                  
-                  {suggestedQuestions.length > 0 && (
-                    <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center' }}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
-                        disabled={generatingQuestions}
-                      >
-                        Generate More
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => setSuggestedQuestions([])}
-                      >
-                        Clear All
-                      </Button>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Active Questions Section */}
+            <Grid item xs={12} md={4}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardHeader
+                  title={`Active Questions (${activeQuestions.length}/10)`}
+                  avatar={<CheckCircleIcon />}
+                  action={
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setAddQuestionDialog(true)}
+                      startIcon={<AddIcon />}
+                      disabled={preloadedQuestions.length >= 20}
+                    >
+                      Add
+                    </Button>
+                  }
+                  sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
+                />
+                <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
+                  {activeQuestions.length > 0 ? (
+                    <List dense>
+                      {activeQuestions.map((question, index) => (
+                        <ListItem
+                          key={index}
+                          sx={{ 
+                            bgcolor: 'success.light', 
+                            mb: 1, 
+                            borderRadius: 1,
+                            cursor: 'pointer',
+                            '&:hover': { bgcolor: 'success.main', color: 'white' }
+                          }}
+                          onClick={() => removeActiveQuestion(question)}
+                        >
+                          <ListItemText
+                            primary={question}
+                            primaryTypographyProps={{ variant: 'body2' }}
+                          />
+                          <IconButton size="small" color="error">
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </ListItem>
+                      ))}
+                    </List>
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        No active questions. Click "Add" or use the "+" button next to AI suggestions.
+                      </Typography>
                     </Box>
+                  )}
+                  
+                  {preloadedQuestions.length > 0 && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" gutterBottom>
+                        Available Questions
+                      </Typography>
+                      <List dense>
+                        {preloadedQuestions.slice(0, 5).map((question, index) => (
+                          <ListItem
+                            key={index}
+                            sx={{ 
+                              cursor: 'pointer',
+                              '&:hover': { bgcolor: 'action.hover' },
+                              opacity: activeQuestions.includes(question) ? 0.5 : 1
+                            }}
+                            onClick={() => activateQuestion(question)}
+                            disabled={activeQuestions.includes(question)}
+                          >
+                            <ListItemText
+                              primary={question}
+                              primaryTypographyProps={{ variant: 'caption' }}
+                            />
+                          </ListItem>
+                        ))}
+                        {preloadedQuestions.length > 5 && (
+                          <ListItem>
+                            <ListItemText
+                              primary={`... and ${preloadedQuestions.length - 5} more`}
+                              primaryTypographyProps={{ variant: 'caption', fontStyle: 'italic' }}
+                            />
+                          </ListItem>
+                        )}
+                      </List>
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -1347,30 +1277,16 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           </Grid>
         </Container>
 
-        {/* Floating Action Button */}
-        <Fab
-          color="primary"
-          onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
-          disabled={generatingQuestions || !aiClient || isAILoading}
-          sx={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            display: { xs: 'flex', md: 'none' }
-          }}
-        >
-          {generatingQuestions ? <CircularProgress size={24} color="inherit" /> : <PsychologyIcon />}
-        </Fab>
-
         {/* Dialogs */}
         <UrgentQuestionsDialog />
+        <AddQuestionDialog />
         <SettingsDialog
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           onSave={handleSettingsSaved}
         />
         
-        {/* Snackbar */}
+        {/* Snackbar for notifications */}
         <Snackbar
           open={snackbarOpen}
           autoHideDuration={4000}
@@ -1385,33 +1301,9 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       
       {/* Global Styles */}
       <style jsx global>{`
-        .scroll-to-bottom {
-          height: 100%;
-          width: 100%;
-          overflow-y: auto;
-        }
-        .hidden-follow-button {
-          display: none;
-        }
-        .scroll-to-bottom::-webkit-scrollbar {
-          width: 8px;
-        }
-        .scroll-to-bottom::-webkit-scrollbar-track {
-          background: ${theme.palette.background.paper};
-          border-radius: 10px;
-        }
-        .scroll-to-bottom::-webkit-scrollbar-thumb {
-          background-color: ${theme.palette.grey[400]};
-          border-radius: 10px;
-          border: 2px solid ${theme.palette.background.paper};
-        }
-        .scroll-to-bottom::-webkit-scrollbar-thumb:hover {
-          background-color: ${theme.palette.grey[500]};
-        }
         @keyframes pulse {
-          0% { opacity: 1; }
+          0%, 100% { opacity: 1; }
           50% { opacity: 0.5; }
-          100% { opacity: 1; }
         }
       `}</style>
     </>

@@ -39,6 +39,7 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteIcon from '@mui/icons-material/Delete';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
+import PsychologyIcon from '@mui/icons-material/Psychology';
 import { getConfig, setConfig, builtInModelGroups, getModelType } from '../utils/config';
 
 function TabPanel({ children, value, index, ...other }) {
@@ -146,7 +147,10 @@ export default function SettingsDialog({ open, onClose, onSave }) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid', borderColor: 'divider', pb: 1.5 }}>
-        Coaching Assistant Settings
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PsychologyIcon color="primary" />
+          Coaching Question Generator Settings
+        </Box>
         <IconButton aria-label="close" onClick={onClose} size="small">
           <CloseIcon />
         </IconButton>
@@ -164,10 +168,13 @@ export default function SettingsDialog({ open, onClose, onSave }) {
 
         {/* API Keys Tab */}
         <TabPanel value={tabValue} index={0}>
-          <Typography variant="h6" gutterBottom>API Keys</Typography>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoOutlinedIcon />
+            API Keys
+          </Typography>
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
-              Enter API keys for the AI providers you want to use. You only need keys for the models you plan to use.
+              Enter API keys for the AI providers you want to use for question generation. You only need keys for the models you plan to use.
             </Typography>
           </Alert>
           
@@ -190,13 +197,22 @@ export default function SettingsDialog({ open, onClose, onSave }) {
 
         {/* AI Configuration Tab */}
         <TabPanel value={tabValue} index={1}>
-          <Typography variant="h6" gutterBottom>AI Configuration</Typography>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PsychologyIcon />
+            AI Question Generator Configuration
+          </Typography>
+          
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              This AI system is focused exclusively on generating powerful coaching questions based on conversation context.
+            </Typography>
+          </Alert>
           
           <FormControl fullWidth margin="dense">
-            <InputLabel id="ai-model-select-label">AI Model</InputLabel>
+            <InputLabel id="ai-model-select-label">AI Model for Question Generation</InputLabel>
             <Select
               labelId="ai-model-select-label" name="aiModel" value={settings.aiModel}
-              onChange={handleChange} label="AI Model"
+              onChange={handleChange} label="AI Model for Question Generation"
             >
               {getAllModelGroups().map(group => ([
                 <ListSubheader key={group.name} sx={{ fontWeight: 'bold', color: 'text.primary', bgcolor: 'transparent' }}>
@@ -213,40 +229,62 @@ export default function SettingsDialog({ open, onClose, onSave }) {
           </FormControl>
           
           <TextField
-            fullWidth margin="dense" name="systemPrompt" label="AI System Prompt for Coaching"
-            multiline rows={4} value={settings.systemPrompt} onChange={handleChange}
-            helperText="Instructions for the AI assistant to support coaching sessions" sx={{ mt: 2 }}
+            fullWidth margin="dense" name="systemPrompt" label="AI System Prompt for Question Generation"
+            multiline rows={6} value={settings.systemPrompt} onChange={handleChange}
+            helperText="Instructions for the AI to generate coaching questions. Focus should be on question generation only." sx={{ mt: 2 }}
           />
           
-          <FormControl fullWidth margin="dense" sx={{ mt: 2 }}>
-            <InputLabel id="response-length-label">AI Response Length</InputLabel>
-            <Select
-              labelId="response-length-label" name="responseLength" value={settings.responseLength}
-              onChange={handleChange} label="AI Response Length"
-            >
-              <MenuItem value="concise">Concise (Brief insights)</MenuItem>
-              <MenuItem value="medium">Medium (Balanced detail)</MenuItem>
-              <MenuItem value="lengthy">Lengthy (Comprehensive analysis)</MenuItem>
-            </Select>
-          </FormControl>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> This system only generates coaching questions. The AI will not provide commentary or advice on conversations.
+            </Typography>
+          </Alert>
         </TabPanel>
 
         {/* Question Generation Tab */}
         <TabPanel value={tabValue} index={2}>
-          <Typography variant="h6" gutterBottom>Question Generation Settings</Typography>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <QuestionAnswerIcon />
+            Question Generation Settings
+          </Typography>
           
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
-              Configure how and when the AI suggests coaching questions during sessions.
+              Configure when and how the AI generates coaching questions during sessions. The system automatically analyzes conversation context and generates relevant questions.
             </Typography>
           </Alert>
           
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" gutterBottom>
-              Dialogue Listening Duration
+              Auto-Generate Questions
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings.autoSuggestQuestions || true}
+                  onChange={(e) => setSettings({ ...settings, autoSuggestQuestions: e.target.checked })}
+                  color="primary"
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body1">Enable Automatic Question Generation</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Automatically generate questions at regular intervals during dialogue
+                  </Typography>
+                </Box>
+              }
+            />
+          </Box>
+          
+          <Divider sx={{ my: 2 }} />
+          
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Question Generation Interval
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              How many seconds of dialogue to analyze before suggesting questions
+              How many seconds of dialogue to analyze before generating new questions
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <Slider
@@ -266,21 +304,25 @@ export default function SettingsDialog({ open, onClose, onSave }) {
                 valueLabelDisplay="on"
                 valueLabelFormat={(value) => `${value}s`}
                 sx={{ flexGrow: 1 }}
+                disabled={!settings.autoSuggestQuestions}
               />
               <Typography variant="body1" sx={{ minWidth: 45 }}>
                 {settings.dialogueListenDuration || 30}s
               </Typography>
             </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Shorter intervals = more frequent questions. Longer intervals = more context for each question.
+            </Typography>
           </Box>
           
           <Divider sx={{ my: 2 }} />
           
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" gutterBottom>
-              Number of Questions to Generate
+              Questions Per Generation
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              How many coaching questions should be suggested each time
+              How many coaching questions should be generated each time
             </Typography>
             <RadioGroup
               row
@@ -295,7 +337,7 @@ export default function SettingsDialog({ open, onClose, onSave }) {
                   <Box>
                     <Typography variant="body1">1 Question</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Single, focused question
+                      Single, focused question for deep exploration
                     </Typography>
                   </Box>
                 }
@@ -307,7 +349,7 @@ export default function SettingsDialog({ open, onClose, onSave }) {
                   <Box>
                     <Typography variant="body1">2 Questions</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Balanced approach
+                      Balanced approach with multiple perspectives
                     </Typography>
                   </Box>
                 }
@@ -319,7 +361,7 @@ export default function SettingsDialog({ open, onClose, onSave }) {
                   <Box>
                     <Typography variant="body1">3 Questions</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Multiple perspectives
+                      Comprehensive exploration with various angles
                     </Typography>
                   </Box>
                 }
@@ -327,28 +369,14 @@ export default function SettingsDialog({ open, onClose, onSave }) {
             </RadioGroup>
           </Box>
           
-          <Divider sx={{ my: 2 }} />
-          
-          <FormControlLabel
-            control={
-              <Switch
-                checked={settings.autoSuggestQuestions || true}
-                onChange={(e) => setSettings({ ...settings, autoSuggestQuestions: e.target.checked })}
-                color="primary"
-              />
-            }
-            label={
-              <Box>
-                <Typography variant="body1">Auto-Suggest Questions</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Automatically generate questions after the dialogue duration
-                </Typography>
-              </Box>
-            }
-          />
+          <Alert severity="success" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              💡 <strong>Tip:</strong> Start with 2 questions every 30 seconds for most coaching sessions. Adjust based on your coaching style and session needs.
+            </Typography>
+          </Alert>
         </TabPanel>
 
-        {/* Question Bank Tab - NEW */}
+        {/* Question Bank Tab */}
         <TabPanel value={tabValue} index={3}>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <QuestionAnswerIcon />
@@ -357,7 +385,7 @@ export default function SettingsDialog({ open, onClose, onSave }) {
           
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
-              Paste your coaching questions below, separated by blank lines. These questions will be highlighted automatically when they match the conversation context.
+              Manage your collection of coaching questions. These serve as backup questions and inspiration for the AI-generated questions. Separate each question with a blank line.
             </Typography>
           </Alert>
           
@@ -366,7 +394,7 @@ export default function SettingsDialog({ open, onClose, onSave }) {
             multiline
             rows={15}
             variant="outlined"
-            label="Coaching Questions"
+            label="Coaching Questions Bank"
             name="questionBank"
             value={settings.questionBank || ''}
             onChange={handleChange}
@@ -377,13 +405,19 @@ What does success look like for you?
 What assumptions are you making about this situation?
 
 What patterns do you notice in your behavior?"
-            helperText="Separate each question with a blank line. The AI will highlight relevant questions during coaching sessions."
+            helperText="These questions help inform the AI's question generation and provide manual backup options."
             sx={{ mb: 2 }}
           />
           
-          <Typography variant="caption" color="text.secondary">
-            💡 Tip: Include a mix of exploratory, action-oriented, and perspective-shifting questions for best results.
-          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary">
+              💡 <strong>Best Practices:</strong>
+            </Typography>
+            <Chip label="Open-ended questions" size="small" />
+            <Chip label="Start with 'What' or 'How'" size="small" />
+            <Chip label="Keep under 15 words" size="small" />
+            <Chip label="Non-judgmental tone" size="small" />
+          </Box>
         </TabPanel>
 
         {/* Custom Models Tab */}
@@ -391,7 +425,7 @@ What patterns do you notice in your behavior?"
           <Typography variant="h6" gutterBottom>Add Custom Models</Typography>
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2" sx={{ mb: 1 }}>
-              Add custom models from any provider (e.g., local models, Azure OpenAI, AWS Bedrock, etc.)
+              Add custom models from any provider for question generation (e.g., local models, Azure OpenAI, AWS Bedrock, etc.)
             </Typography>
             <Typography variant="caption">
               Examples: llama-3.1-70b, mixtral-8x7b, azure-gpt-4, bedrock-claude-3
@@ -472,20 +506,21 @@ What patterns do you notice in your behavior?"
         <TabPanel value={tabValue} index={5}>
           <Typography variant="h6" gutterBottom>Speech Configuration</Typography>
           
-          <TextField
-            fullWidth margin="dense" name="silenceTimerDuration" label="Silence Detection (seconds)"
-            type="number" inputProps={{ step: 0.1, min: 0.5, max: 5 }}
-            value={settings.silenceTimerDuration} onChange={handleChange}
-            helperText="Auto-submit after this duration of silence"
-          />
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              Configure speech recognition for capturing coaching conversations. The system transcribes both coach and coachee speech to analyze for question generation.
+            </Typography>
+          </Alert>
           
-          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle1" gutterBottom sx={{ mt: 3 }}>Azure Speech Services</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Azure Speech Services is required for real-time transcription of coaching conversations.
+          </Typography>
           
-          <Typography variant="subtitle1" gutterBottom>Azure Speech Services</Typography>
           <TextField
             fullWidth margin="dense" name="azureToken" label="Azure Speech API Key" type="password"
             value={settings.azureToken || ''} onChange={handleChange}
-            helperText="Required for voice transcription"
+            helperText="Required for voice transcription - get from Azure Portal"
           />
           <TextField
             fullWidth margin="dense" name="azureRegion" label="Azure Region"
@@ -495,8 +530,14 @@ What patterns do you notice in your behavior?"
           <TextField
             fullWidth margin="dense" name="azureLanguage" label="Recognition Language"
             value={settings.azureLanguage || ''} onChange={handleChange}
-            helperText="E.g., en-US, en-GB, es-ES, fr-FR" sx={{ mt: 2 }}
+            helperText="E.g., en-US, en-GB, es-ES, fr-FR, de-DE" sx={{ mt: 2 }}
           />
+          
+          <Alert severity="warning" sx={{ mt: 3 }}>
+            <Typography variant="body2">
+              <strong>Privacy Note:</strong> Speech is processed in real-time and stored locally. No audio data is sent to external services beyond Azure Speech for transcription.
+            </Typography>
+          </Alert>
         </TabPanel>
       </DialogContent>
 

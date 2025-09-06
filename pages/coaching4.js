@@ -1,4 +1,4 @@
-// pages/coaching4.js - Enhanced with Supabase Database Integration - FIXED VERSION
+// pages/coaching4.js - Enhanced Coaching Assistant (Database Removed)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -46,8 +46,6 @@ import {
 // MUI Icons
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import CloudDoneIcon from '@mui/icons-material/CloudDone';
-import CloudOffIcon from '@mui/icons-material/CloudOff';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DownloadIcon from '@mui/icons-material/Download';
 import FlagIcon from '@mui/icons-material/Flag';
@@ -59,14 +57,11 @@ import PersonIcon from '@mui/icons-material/Person';
 import PsychologyIcon from '@mui/icons-material/Psychology';
 import QuestionAnswerIcon from '@mui/icons-material/QuestionAnswer';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
-import SaveIcon from '@mui/icons-material/Save';
 import ScreenShareIcon from '@mui/icons-material/ScreenShare';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import StopScreenShareIcon from '@mui/icons-material/StopScreenShare';
 import TimerIcon from '@mui/icons-material/Timer';
-import StorageIcon from '@mui/icons-material/Storage';
-import BugReportIcon from '@mui/icons-material/BugReport';
 
 // Third-party Libraries
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -81,7 +76,6 @@ import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
-import { saveCoachingSession, isSupabaseConfigured, testSupabaseConnection } from '../lib/database';
 
 // Utility function
 function debounce(func, timeout = 100) {
@@ -93,140 +87,6 @@ function debounce(func, timeout = 100) {
     }, timeout);
   };
 }
-
-// Debug Panel Component (inline for simplicity)
-const SupabaseDebugPanel = () => {
-  const [debugInfo, setDebugInfo] = useState({
-    configured: false,
-    connectionTest: null,
-    envVars: {
-      url: false,
-      key: false
-    }
-  });
-  const [testing, setTesting] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    checkConfiguration();
-  }, []);
-
-  const checkConfiguration = () => {
-    const configured = isSupabaseConfigured();
-    const url = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    console.log('Debug - Environment variables:', {
-      NEXT_PUBLIC_SUPABASE_URL: url ? 'SET' : 'MISSING',
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: key ? 'SET' : 'MISSING'
-    });
-
-    setDebugInfo(prev => ({
-      ...prev,
-      configured,
-      envVars: { url, key }
-    }));
-  };
-
-  const runConnectionTest = async () => {
-    setTesting(true);
-    try {
-      const result = await testSupabaseConnection();
-      setDebugInfo(prev => ({
-        ...prev,
-        connectionTest: result
-      }));
-    } catch (error) {
-      setDebugInfo(prev => ({
-        ...prev,
-        connectionTest: { success: false, error: error.message }
-      }));
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  if (!expanded) {
-    return (
-      <Paper sx={{ p: 1, mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <BugReportIcon fontSize="small" />
-            <Typography variant="caption">Database Debug</Typography>
-            <Chip 
-              label={debugInfo.configured ? "OK" : "ERROR"} 
-              color={debugInfo.configured ? "success" : "error"}
-              size="small"
-            />
-          </Box>
-          <Button size="small" onClick={() => setExpanded(true)}>Show Details</Button>
-        </Box>
-      </Paper>
-    );
-  }
-
-  return (
-    <Paper sx={{ p: 2, mb: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">Database Debug Information</Typography>
-        <Button size="small" onClick={() => setExpanded(false)}>Hide</Button>
-      </Box>
-      
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={4}>
-          <Typography variant="subtitle2" gutterBottom>Environment Variables</Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Chip 
-              label="SUPABASE_URL" 
-              color={debugInfo.envVars.url ? "success" : "error"}
-              size="small"
-            />
-            <Chip 
-              label="SUPABASE_ANON_KEY" 
-              color={debugInfo.envVars.key ? "success" : "error"}
-              size="small"
-            />
-          </Box>
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Typography variant="subtitle2" gutterBottom>Configuration</Typography>
-          <Chip 
-            label={debugInfo.configured ? "Client Ready" : "Not Configured"}
-            color={debugInfo.configured ? "success" : "error"}
-          />
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Typography variant="subtitle2" gutterBottom>Connection Test</Typography>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Button 
-              size="small"
-              variant="outlined" 
-              onClick={runConnectionTest}
-              disabled={!debugInfo.configured || testing}
-            >
-              {testing ? 'Testing...' : 'Test Connection'}
-            </Button>
-            {debugInfo.connectionTest && (
-              <Chip 
-                label={debugInfo.connectionTest.success ? "Success" : "Failed"}
-                color={debugInfo.connectionTest.success ? "success" : "error"}
-                size="small"
-              />
-            )}
-          </Box>
-        </Grid>
-      </Grid>
-      
-      {debugInfo.connectionTest && !debugInfo.connectionTest.success && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          Connection failed: {debugInfo.connectionTest.error}
-        </Alert>
-      )}
-    </Paper>
-  );
-};
 
 export default function CoachingPage() {
   const dispatch = useDispatch();
@@ -290,12 +150,6 @@ export default function CoachingPage() {
   // Session Transcription State
   const [sessionTranscript, setSessionTranscript] = useState([]);
   const [sessionStartTime, setSessionStartTime] = useState(null);
-  
-  // Database States
-  const [isSavingToDatabase, setIsSavingToDatabase] = useState(false);
-  const [sessionSavedToDatabase, setSessionSavedToDatabase] = useState(false);
-  const [savedSessionId, setSavedSessionId] = useState(null);
-  const [databaseError, setDatabaseError] = useState(null);
 
   // Refs
   const coachInterimTranscription = useRef('');
@@ -310,28 +164,6 @@ export default function CoachingPage() {
   const dialogueBufferRef = useRef([]);
   const speakingTimerRef = useRef(null);
 
-  // FIXED: Check Supabase configuration on component mount with connection testing
-  useEffect(() => {
-    const checkSupabaseConnection = async () => {
-      const configured = isSupabaseConfigured();
-      console.log('Supabase configured:', configured);
-      
-      if (configured) {
-        const testResult = await testSupabaseConnection();
-        console.log('Supabase connection test:', testResult);
-        
-        if (!testResult.success) {
-          setDatabaseError(`Database connection failed: ${testResult.error}`);
-        }
-      } else {
-        console.warn('Supabase not configured - database features will be disabled');
-        setDatabaseError('Database not configured. Session data will not be saved to cloud.');
-      }
-    };
-    
-    checkSupabaseConnection();
-  }, []);
-
   // Utility Functions
   const showSnackbar = useCallback((message, severity = 'info') => {
     setSnackbarMessage(message);
@@ -341,140 +173,54 @@ export default function CoachingPage() {
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
-  // FIXED: Save Session to Database Function with proper validation
-  const saveSessionToDatabase = async (includeDownload = false) => {
-    console.log('saveSessionToDatabase called with:', {
-      transcriptLength: sessionTranscript.length,
-      sessionStartTime,
-      dialogueDuration
-    });
-
-    if (sessionTranscript.length === 0) {
-      showSnackbar('No session data to save', 'warning');
-      return;
-    }
-
-    if (!isSupabaseConfigured()) {
-      showSnackbar('Database not configured. Cannot save session to cloud.', 'error');
-      return;
-    }
-
-    // FIXED: Validate transcript data before sending
-    const validTranscript = sessionTranscript.filter(entry => 
-      entry && 
-      entry.text && 
-      typeof entry.text === 'string' && 
-      entry.text.trim().length > 0 &&
-      entry.source &&
-      typeof entry.source === 'string' &&
-      entry.timestamp &&
-      typeof entry.timestamp === 'number'
-    );
-
-    console.log('Filtered transcript:', {
-      original: sessionTranscript.length,
-      valid: validTranscript.length
-    });
-
-    if (validTranscript.length === 0) {
-      showSnackbar('No valid transcript data to save', 'warning');
-      return;
-    }
-
-    // FIXED: Ensure sessionStartTime is valid
-    if (!sessionStartTime || typeof sessionStartTime !== 'number') {
-      showSnackbar('Invalid session start time', 'error');
-      return;
-    }
-
-    setIsSavingToDatabase(true);
-    setDatabaseError(null);
-
-    try {
-      const sessionData = {
-        transcript: validTranscript,
-        startTime: sessionStartTime,
-        endTime: Date.now(),
-        metadata: {
-          totalDuration: dialogueDuration,
-          aiModel: appConfig.aiModel || 'unknown',
-          questionsGenerated: suggestedQuestions.length,
-          activeQuestions: activeQuestions.length,
-          systemPrompt: appConfig.systemPrompt || '',
-          responseLength: appConfig.responseLength || 'medium',
-          browserInfo: {
-            userAgent: navigator.userAgent,
-            language: navigator.language,
-            platform: navigator.platform
-          }
-        }
-      };
-
-      console.log('Sending session data to database:', {
-        transcriptLength: sessionData.transcript.length,
-        startTime: new Date(sessionData.startTime).toISOString(),
-        endTime: new Date(sessionData.endTime).toISOString(),
-        metadataKeys: Object.keys(sessionData.metadata)
-      });
-
-      const result = await saveCoachingSession(sessionData);
-
-      console.log('Database save result:', result);
-
-      if (result.success) {
-        setSessionSavedToDatabase(true);
-        setSavedSessionId(result.sessionId);
-        showSnackbar(
-          `Session saved to database successfully! Session ID: ${result.sessionId.slice(0, 8)}...`, 
-          'success'
-        );
-
-        // If user also wants to download, trigger download
-        if (includeDownload) {
-          downloadTranscriptionOnly();
-        }
-      } else {
-        throw new Error(result.error);
-      }
-    } catch (error) {
-      console.error('Error saving session to database:', error);
-      setDatabaseError(error.message);
-      showSnackbar(`Failed to save session: ${error.message}`, 'error');
-    } finally {
-      setIsSavingToDatabase(false);
-    }
-  };
-
-  // Download Transcription Function (CSV only)
-  const downloadTranscriptionOnly = () => {
+  // Download Transcription Function (CSV and TXT)
+  const downloadTranscription = (format = 'csv') => {
     if (sessionTranscript.length === 0) {
       showSnackbar('No transcription data to download', 'warning');
       return;
     }
 
-    // Prepare CSV content
-    const csvHeaders = ['Timestamp', 'Elapsed Time (seconds)', 'Speaker', 'Text'];
-    const csvRows = sessionTranscript.map(item => {
-      const timestamp = new Date(item.timestamp).toLocaleString();
-      const elapsedSeconds = sessionStartTime ? 
-        Math.floor((item.timestamp - sessionStartTime) / 1000) : 0;
-      // Escape quotes in text and wrap in quotes if contains comma
-      const escapedText = item.text.replace(/"/g, '""');
-      const textCell = escapedText.includes(',') ? `"${escapedText}"` : escapedText;
-      
-      return [
-        timestamp,
-        elapsedSeconds,
-        item.source.charAt(0).toUpperCase() + item.source.slice(1),
-        textCell
-      ].join(',');
-    });
+    let content = '';
+    let filename = '';
+    let mimeType = '';
 
-    // Combine headers and rows
-    const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
+    if (format === 'csv') {
+      // Prepare CSV content
+      const csvHeaders = ['Timestamp', 'Elapsed Time (seconds)', 'Speaker', 'Text'];
+      const csvRows = sessionTranscript.map(item => {
+        const timestamp = new Date(item.timestamp).toLocaleString();
+        const elapsedSeconds = sessionStartTime ? 
+          Math.floor((item.timestamp - sessionStartTime) / 1000) : 0;
+        // Escape quotes in text and wrap in quotes if contains comma
+        const escapedText = item.text.replace(/"/g, '""');
+        const textCell = escapedText.includes(',') ? `"${escapedText}"` : escapedText;
+        
+        return [
+          timestamp,
+          elapsedSeconds,
+          item.source.charAt(0).toUpperCase() + item.source.slice(1),
+          textCell
+        ].join(',');
+      });
+
+      content = [csvHeaders.join(','), ...csvRows].join('\n');
+      mimeType = 'text/csv;charset=utf-8;';
+      filename = 'coaching-session-transcript.csv';
+    } else if (format === 'txt') {
+      // Prepare TXT content
+      const txtContent = sessionTranscript.map(item => {
+        const timestamp = new Date(item.timestamp).toLocaleString();
+        const speaker = item.source.charAt(0).toUpperCase() + item.source.slice(1);
+        return `[${timestamp}] ${speaker}: ${item.text}`;
+      }).join('\n\n');
+
+      content = `Coaching Session Transcript\n${'='.repeat(50)}\n\n${txtContent}`;
+      mimeType = 'text/plain;charset=utf-8;';
+      filename = 'coaching-session-transcript.txt';
+    }
 
     // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([content], { type: mimeType });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     
@@ -482,21 +228,16 @@ export default function CoachingPage() {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-    const filename = `coaching-session-${dateStr}-${timeStr}.csv`;
+    const finalFilename = filename.replace('.', `-${dateStr}-${timeStr}.`);
     
     link.setAttribute('href', url);
-    link.setAttribute('download', filename);
+    link.setAttribute('download', finalFilename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     
-    showSnackbar('Transcription downloaded successfully', 'success');
-  };
-
-  // Combined Download and Save Function
-  const downloadAndSaveSession = () => {
-    saveSessionToDatabase(true);
+    showSnackbar(`Transcription downloaded as ${format.toUpperCase()}`, 'success');
   };
 
   // Settings Management
@@ -836,12 +577,12 @@ export default function CoachingPage() {
     }
   };
 
-  // FIXED: Transcription Event Handler with proper validation
+  // Transcription Event Handler
   const handleTranscriptionEvent = (text, source) => {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
 
-    // FIXED: Validate source
+    // Validate source
     const validSources = ['coach', 'coachee', 'ai'];
     let normalizedSource = source.toLowerCase();
     if (!validSources.includes(normalizedSource)) {
@@ -857,7 +598,7 @@ export default function CoachingPage() {
     // Reset the last activity time
     lastQuestionTimeRef.current = Date.now();
     
-    // FIXED: Add to session transcript with proper validation
+    // Add to session transcript
     const transcriptEntry = {
       text: cleanText,
       source: normalizedSource,
@@ -904,7 +645,7 @@ export default function CoachingPage() {
     }
   };
 
-  // FIXED: AI Processing with proper transcript integration
+  // AI Processing with proper transcript integration
   const askAI = async (text, source) => {
     if (!text.trim()) {
       showSnackbar('No input text to process.', 'warning');
@@ -1012,7 +753,7 @@ export default function CoachingPage() {
       const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
 
-      // FIXED: Add AI response to session transcript with proper structure
+      // Add AI response to session transcript
       if (streamedResponse && streamedResponse.trim()) {
         const aiTranscriptEntry = {
           text: streamedResponse.trim(),
@@ -1220,31 +961,6 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
     </Paper>
   );
 
-  const DatabaseStatusIndicator = () => (
-    <Paper sx={{ p: 2, textAlign: 'center', bgcolor: sessionSavedToDatabase ? 'success.light' : databaseError ? 'error.light' : 'info.light' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-        {isSavingToDatabase ? (
-          <CircularProgress size={20} />
-        ) : sessionSavedToDatabase ? (
-          <CloudDoneIcon />
-        ) : databaseError ? (
-          <CloudOffIcon />
-        ) : isSupabaseConfigured() ? (
-          <StorageIcon />
-        ) : (
-          <CloudOffIcon />
-        )}
-        <Typography variant="subtitle2">Database</Typography>
-      </Box>
-      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-        {isSavingToDatabase ? 'Saving...' : 
-         sessionSavedToDatabase ? `Saved (${savedSessionId?.slice(0, 8)}...)` :
-         databaseError ? 'Error' :
-         isSupabaseConfigured() ? 'Ready' : 'Not configured'}
-      </Typography>
-    </Paper>
-  );
-
   const UrgentQuestionsDialog = () => (
     <Dialog open={urgentQuestionsDialog} onClose={() => setUrgentQuestionsDialog(false)} maxWidth="sm" fullWidth>
       <DialogTitle>
@@ -1326,14 +1042,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant - Enhanced with Database</title>
+        <title>Executive Coaching Assistant</title>
       </Head>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <AppBar position="static" color="default" elevation={1}>
           <Toolbar>
             <SmartToyIcon sx={{ mr: 2, color: 'primary.main' }} />
             <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'text.primary' }}>
-              Executive Coaching Assistant - Enhanced
+              Executive Coaching Assistant
             </Typography>
             
             {/* Dialogue Duration Indicator */}
@@ -1347,42 +1063,29 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
               />
             )}
             
-            {/* Database Status Indicator */}
-            {sessionSavedToDatabase && (
-              <Chip
-                icon={<CloudDoneIcon />}
-                label={`Saved (${savedSessionId?.slice(0, 8)}...)`}
-                color="success"
-                variant="outlined"
-                sx={{ mr: 2 }}
-              />
-            )}
-            
-            {/* Download & Save Buttons */}
+            {/* Download Buttons */}
             <Tooltip title="Download CSV">
               <IconButton 
                 color="primary" 
-                onClick={downloadTranscriptionOnly} 
+                onClick={() => downloadTranscription('csv')} 
                 disabled={sessionTranscript.length === 0}
-                aria-label="download transcript"
+                aria-label="download CSV"
                 sx={{ mr: 1 }}
               >
                 <DownloadIcon />
               </IconButton>
             </Tooltip>
 
-            <Tooltip title={isSupabaseConfigured() ? "Save to Database" : "Database not configured"}>
-              <span>
-                <IconButton 
-                  color="secondary" 
-                  onClick={() => saveSessionToDatabase(false)} 
-                  disabled={sessionTranscript.length === 0 || !isSupabaseConfigured() || isSavingToDatabase}
-                  aria-label="save to database"
-                  sx={{ mr: 1 }}
-                >
-                  {isSavingToDatabase ? <CircularProgress size={20} /> : <SaveIcon />}
-                </IconButton>
-              </span>
+            <Tooltip title="Download TXT">
+              <Button 
+                color="primary" 
+                onClick={() => downloadTranscription('txt')} 
+                disabled={sessionTranscript.length === 0}
+                size="small"
+                sx={{ mr: 2 }}
+              >
+                TXT
+              </Button>
             </Tooltip>
             
             <Tooltip title="Settings">
@@ -1394,14 +1097,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         </AppBar>
 
         <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2 }}>
-          {/* FIXED: Add Debug Panel */}
-          <SupabaseDebugPanel />
-          
           <Grid container spacing={3} sx={{ height: '100%' }}>
             {/* Top Row - Status Indicators */}
             <Grid item xs={12}>
               <Grid container spacing={2}>
-                <Grid item xs={12} md={2.4}>
+                <Grid item xs={12} md={3}>
                   <StatusIndicator
                     isActive={isSystemAudioActive || isCoacheeMicActive}
                     isSpeaking={isCoacheeSpeaking}
@@ -1409,7 +1109,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     icon={<RecordVoiceOverIcon />}
                   />
                 </Grid>
-                <Grid item xs={12} md={2.4}>
+                <Grid item xs={12} md={3}>
                   <StatusIndicator
                     isActive={isCoachMicActive}
                     isSpeaking={isCoachSpeaking}
@@ -1417,7 +1117,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     icon={<PersonIcon />}
                   />
                 </Grid>
-                <Grid item xs={12} md={2.4}>
+                <Grid item xs={12} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isProcessing ? 'warning.light' : 'info.light' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                       <SmartToyIcon />
@@ -1429,10 +1129,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     </Typography>
                   </Paper>
                 </Grid>
-                <Grid item xs={12} md={2.4}>
-                  <DatabaseStatusIndicator />
-                </Grid>
-                <Grid item xs={12} md={2.4}>
+                <Grid item xs={12} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'grey.100' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                       <DownloadIcon />
@@ -1486,40 +1183,31 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                   </Grid>
                   <Grid item xs={12} md={2.4}>
                     <Button
-                      onClick={downloadAndSaveSession}
-                      variant="outlined"
-                      color="success"
-                      startIcon={isSavingToDatabase ? <CircularProgress size={16} /> : <SaveIcon />}
-                      fullWidth
-                      disabled={sessionTranscript.length === 0 || isSavingToDatabase}
-                    >
-                      {isSavingToDatabase ? 'Saving...' : 'Save & Download'}
-                    </Button>
-                  </Grid>
-                  <Grid item xs={12} md={2.4}>
-                    <Button
-                      onClick={downloadTranscriptionOnly}
+                      onClick={() => downloadTranscription('csv')}
                       variant="outlined"
                       color="primary"
                       startIcon={<DownloadIcon />}
                       fullWidth
                       disabled={sessionTranscript.length === 0}
                     >
-                      Download Only
+                      Download CSV
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={2.4}>
+                    <Button
+                      onClick={() => downloadTranscription('txt')}
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<DownloadIcon />}
+                      fullWidth
+                      disabled={sessionTranscript.length === 0}
+                    >
+                      Download TXT
                     </Button>
                   </Grid>
                 </Grid>
               </Paper>
             </Grid>
-
-            {/* Show database error alert if present */}
-            {databaseError && (
-              <Grid item xs={12}>
-                <Alert severity="warning" onClose={() => setDatabaseError(null)}>
-                  Database Error: {databaseError}
-                </Alert>
-              </Grid>
-            )}
 
             {/* Questions Section */}
             <Grid item xs={12} md={8}>

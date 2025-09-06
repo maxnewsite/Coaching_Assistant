@@ -73,11 +73,7 @@ const defaultConfig = {
   // Model Selection
   aiModel: 'claude-3-5-sonnet-20241022', // Default to Claude
   
-  // Behavior Settings
-  silenceTimerDuration: 1.5, // Slightly longer for coaching conversations
-  responseLength: 'medium',
-  
-  // Question Generation Settings
+  // Question Generation Settings (Primary focus)
   dialogueListenDuration: 30, // Seconds of dialogue before suggesting questions (default 30 seconds)
   numberOfQuestions: 2, // Number of questions to generate (1-3)
   autoSuggestQuestions: true, // Automatically suggest questions after dialogue duration
@@ -85,15 +81,19 @@ const defaultConfig = {
   // Question Bank
   questionBank: defaultQuestionBank, // Pre-loaded questions
   
-  // System Prompt for Coaching
-  systemPrompt: `You are an AI executive coaching assistant. Your role is to:
-- Support the coach by providing insights and suggestions during coaching sessions
-- Help identify key themes and patterns in the coachee's responses
-- Suggest powerful coaching questions to deepen exploration
-- Highlight emotional cues and non-verbal communication patterns
-- Provide frameworks and models relevant to the coaching topic
-- Maintain strict confidentiality and professional boundaries
-- Support the coach without taking over the coaching process`,
+  // System Prompt for Question Generation (Updated focus)
+  systemPrompt: `You are an expert executive coaching question generator. Your sole purpose is to create powerful, open-ended coaching questions based on dialogue context.
+
+Key Principles:
+- Generate only coaching questions, no commentary or advice
+- Focus on open-ended questions that promote self-discovery
+- Keep questions concise and impactful (under 15 words)
+- Use "what" and "how" rather than "why" questions
+- Challenge assumptions while remaining non-judgmental
+- Adapt questions to the conversation context and energy
+- Create questions that move the coachee toward insights and action
+
+You will receive conversation snippets and generate the exact number of questions requested. Respond only with the numbered questions, nothing else.`,
   
   // Azure Speech Settings
   azureToken: '',
@@ -102,8 +102,12 @@ const defaultConfig = {
   
   // Custom Models & Preferences
   customModels: [],
-  coacheeAutoMode: true, // Auto-submit coachee's speech
-  isManualMode: false, // Manual mode for coach
+  
+  // Legacy settings (kept for compatibility but not actively used)
+  silenceTimerDuration: 1.5, // Kept for potential future use
+  responseLength: 'medium', // Not used in question-only mode
+  coacheeAutoMode: true, // Not used in question-only mode
+  isManualMode: false, // Not used in question-only mode
 };
 
 export function getConfig() {
@@ -113,12 +117,18 @@ export function getConfig() {
     
     // Migration from old config
     if (parsed.gptSystemPrompt && !parsed.systemPrompt) {
-      parsed.systemPrompt = parsed.gptSystemPrompt;
+      // If old system prompt exists, replace it with new question-focused prompt
+      parsed.systemPrompt = defaultConfig.systemPrompt;
       delete parsed.gptSystemPrompt;
     }
     if (parsed.systemAutoMode !== undefined && parsed.coacheeAutoMode === undefined) {
       parsed.coacheeAutoMode = parsed.systemAutoMode;
       delete parsed.systemAutoMode;
+    }
+    
+    // Ensure systemPrompt is updated to question-focused version
+    if (!parsed.systemPrompt || parsed.systemPrompt.includes('coaching assistant') || parsed.systemPrompt.includes('support the coach')) {
+      parsed.systemPrompt = defaultConfig.systemPrompt;
     }
     
     // Ensure customModels is an array
@@ -131,6 +141,17 @@ export function getConfig() {
       parsed.questionBank = defaultQuestionBank;
     }
 
+    // Ensure question generation settings exist
+    if (parsed.dialogueListenDuration === undefined) {
+      parsed.dialogueListenDuration = 30;
+    }
+    if (parsed.numberOfQuestions === undefined) {
+      parsed.numberOfQuestions = 2;
+    }
+    if (parsed.autoSuggestQuestions === undefined) {
+      parsed.autoSuggestQuestions = true;
+    }
+
     return { ...defaultConfig, ...parsed };
   }
   return defaultConfig;
@@ -141,7 +162,9 @@ export function setConfig(config) {
     const configToSave = {
       ...config,
       customModels: Array.isArray(config.customModels) ? config.customModels : [],
-      questionBank: config.questionBank || defaultQuestionBank
+      questionBank: config.questionBank || defaultQuestionBank,
+      // Ensure system prompt stays question-focused
+      systemPrompt: config.systemPrompt || defaultConfig.systemPrompt
     };
     localStorage.setItem('coachingAssistantConfig', JSON.stringify(configToSave));
   }

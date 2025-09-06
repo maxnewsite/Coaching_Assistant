@@ -1,4 +1,4 @@
-// pages/coaching4.js - Enhanced Coaching Assistant (Database Removed)
+// pages/coaching4.js - Enhanced Coaching Assistant (Question-Focused Only)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -71,9 +71,8 @@ import OpenAI from 'openai';
 
 // Local Imports
 import SettingsDialog from '../components/SettingsDialog';
-import { setAIResponse } from '../redux/aiResponseSlice';
-import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
+import { addToHistory } from '../redux/historySlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
 
@@ -91,7 +90,6 @@ function debounce(func, timeout = 100) {
 export default function CoachingPage() {
   const dispatch = useDispatch();
   const transcriptionFromStore = useSelector(state => state.transcription);
-  const aiResponseFromStore = useSelector(state => state.aiResponse);
   const history = useSelector(state => state.history);
   const theme = useTheme();
 
@@ -104,8 +102,6 @@ export default function CoachingPage() {
   const [isCoacheeMicActive, setIsCoacheeMicActive] = useState(false);
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
   const [coachTranscription, setCoachTranscription] = useState('');
-  const [coacheeAutoMode, setCoacheeAutoMode] = useState(appConfig.coacheeAutoMode !== undefined ? appConfig.coacheeAutoMode : true);
-  const [isManualMode, setIsManualMode] = useState(appConfig.isManualMode !== undefined ? appConfig.isManualMode : false);
 
   // Speaking Status States
   const [isCoacheeSpeaking, setIsCoacheeSpeaking] = useState(false);
@@ -114,7 +110,6 @@ export default function CoachingPage() {
   // AI & Processing States
   const [aiClient, setAiClient] = useState(null);
   const [isAILoading, setIsAILoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
 
   // UI States
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -154,11 +149,7 @@ export default function CoachingPage() {
   // Refs
   const coachInterimTranscription = useRef('');
   const coacheeInterimTranscription = useRef('');
-  const silenceTimer = useRef(null);
   const finalTranscript = useRef({ coach: '', coachee: '' });
-  const isManualModeRef = useRef(isManualMode);
-  const coacheeAutoModeRef = useRef(coacheeAutoMode);
-  const throttledDispatchSetAIResponseRef = useRef(null);
   const dialogueTimerRef = useRef(null);
   const lastQuestionTimeRef = useRef(Date.now());
   const dialogueBufferRef = useRef([]);
@@ -245,8 +236,6 @@ export default function CoachingPage() {
     const newConfig = getConfig();
     setAppConfig(newConfig);
     setIsAILoading(true);
-    setCoacheeAutoMode(newConfig.coacheeAutoMode !== undefined ? newConfig.coacheeAutoMode : true);
-    setIsManualMode(newConfig.isManualMode !== undefined ? newConfig.isManualMode : false);
     showSnackbar('Settings saved successfully', 'success');
   };
 
@@ -300,19 +289,6 @@ export default function CoachingPage() {
     if (isAILoading) initializeAI();
   }, [appConfig, isAILoading, showSnackbar]);
 
-  // Throttled AI Response Dispatch
-  useEffect(() => {
-    throttledDispatchSetAIResponseRef.current = throttle((payload) => {
-      dispatch(setAIResponse(payload));
-    }, 250, { leading: true, trailing: true });
-
-    return () => {
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-    };
-  }, [dispatch]);
-
   // Dialogue Timer Management
   useEffect(() => {
     if (isDialogueActive) {
@@ -347,10 +323,6 @@ export default function CoachingPage() {
       }
     };
   }, [isDialogueActive, appConfig, sessionStartTime]);
-
-  // Update refs when states change
-  useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
-  useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
 
   // Speech Recognition Functions
   const createRecognizer = async (mediaStream, source) => {
@@ -577,13 +549,13 @@ export default function CoachingPage() {
     }
   };
 
-  // Transcription Event Handler
+  // Transcription Event Handler - Updated to only capture transcription, no AI commentary
   const handleTranscriptionEvent = (text, source) => {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
 
     // Validate source
-    const validSources = ['coach', 'coachee', 'ai'];
+    const validSources = ['coach', 'coachee'];
     let normalizedSource = source.toLowerCase();
     if (!validSources.includes(normalizedSource)) {
       console.warn('Invalid source:', source, 'using coachee as fallback');
@@ -627,7 +599,7 @@ export default function CoachingPage() {
       item => item.timestamp > fiveMinutesAgo
     );
 
-    // Update transcription
+    // Update transcription display
     finalTranscript.current[normalizedSource] += cleanText + ' ';
     
     if (normalizedSource === 'coachee') {
@@ -636,165 +608,7 @@ export default function CoachingPage() {
       setCoachTranscription(finalTranscript.current.coach + coachInterimTranscription.current);
     }
 
-    // Handle auto-submission with silence timer
-    if ((normalizedSource === 'coachee' && coacheeAutoModeRef.current) || (normalizedSource === 'coach' && !isManualModeRef.current)) {
-      clearTimeout(silenceTimer.current);
-      silenceTimer.current = setTimeout(() => {
-        askAI(finalTranscript.current[normalizedSource].trim(), normalizedSource);
-      }, appConfig.silenceTimerDuration * 1000);
-    }
-  };
-
-  // AI Processing with proper transcript integration
-  const askAI = async (text, source) => {
-    if (!text.trim()) {
-      showSnackbar('No input text to process.', 'warning');
-      return;
-    }
-    if (!aiClient || isAILoading) {
-      showSnackbar('AI client is not ready. Please wait or check settings.', 'warning');
-      return;
-    }
-
-    const lengthSettings = {
-      concise: { temperature: 0.4, maxTokens: 250 },
-      medium: { temperature: 0.6, maxTokens: 500 },
-      lengthy: { temperature: 0.8, maxTokens: 1000 }
-    };
-    const { temperature, maxTokens } = lengthSettings[appConfig.responseLength || 'medium'];
-
-    setIsProcessing(true);
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    let streamedResponse = '';
-
-    dispatch(addToHistory({ type: 'question', text, timestamp, source, status: 'pending' }));
-    dispatch(setAIResponse(''));
-
-    try {
-      const conversationHistoryForAPI = history
-        .filter(e => e.text && (e.type === 'question' || e.type === 'response') && e.status !== 'pending')
-        .slice(-6)
-        .map(event => ({
-          role: event.type === 'question' ? 'user' : 'assistant',
-          content: event.text,
-        }));
-
-      if (aiClient.type === 'anthropic') {
-        const response = await aiClient.client.messages.create({
-          model: appConfig.aiModel,
-          max_tokens: maxTokens,
-          temperature,
-          system: appConfig.systemPrompt,
-          messages: [
-            ...conversationHistoryForAPI,
-            { role: 'user', content: text }
-          ],
-          stream: true
-        });
-
-        for await (const chunk of response) {
-          if (chunk.type === 'content_block_delta') {
-            const chunkText = chunk.delta.text || '';
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else if (aiClient.type === 'gemini') {
-        const model = aiClient.client.getGenerativeModel({
-          model: appConfig.aiModel,
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
-          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
-        });
-        const chat = model.startChat({
-          history: conversationHistoryForAPI.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          })),
-        });
-        const result = await chat.sendMessageStream(text);
-        for await (const chunk of result.stream) {
-          if (chunk?.text) {
-            const chunkText = chunk.text();
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else {
-        const messages = [
-          { role: 'system', content: appConfig.systemPrompt },
-          ...conversationHistoryForAPI,
-          { role: 'user', content: text }
-        ];
-        const stream = await aiClient.client.chat.completions.create({
-          model: appConfig.aiModel,
-          messages,
-          temperature,
-          max_tokens: maxTokens,
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          const chunkText = chunk.choices[0]?.delta?.content || '';
-          streamedResponse += chunkText;
-          if (throttledDispatchSetAIResponseRef.current) {
-            throttledDispatchSetAIResponseRef.current(streamedResponse);
-          }
-        }
-      }
-
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-      dispatch(setAIResponse(streamedResponse));
-
-      const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
-
-      // Add AI response to session transcript
-      if (streamedResponse && streamedResponse.trim()) {
-        const aiTranscriptEntry = {
-          text: streamedResponse.trim(),
-          source: 'ai',
-          timestamp: Date.now(),
-          metadata: {
-            originalPrompt: text,
-            promptSource: source,
-            aiModel: appConfig.aiModel || 'unknown',
-            responseLength: streamedResponse.length,
-            generatedAt: new Date().toISOString()
-          }
-        };
-        
-        console.log('Adding AI response to transcript:', {
-          responseLength: aiTranscriptEntry.text.length,
-          model: aiTranscriptEntry.metadata.aiModel
-        });
-        
-        setSessionTranscript(prev => [...prev, aiTranscriptEntry]);
-      }
-
-    } catch (error) {
-      console.error("AI request error:", error);
-      const errorMessage = `AI request failed: ${error.message || 'Unknown error'}`;
-      showSnackbar(errorMessage, 'error');
-      dispatch(setAIResponse(`Error: ${errorMessage}`));
-      dispatch(addToHistory({ type: 'response', text: `Error: ${errorMessage}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'error' }));
-    } finally {
-      if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
-        finalTranscript.current[source] = '';
-        if (source === 'coachee') {
-          coacheeInterimTranscription.current = '';
-          dispatch(setTranscription(''));
-        } else {
-          coachInterimTranscription.current = '';
-          setCoachTranscription('');
-        }
-      }
-      setIsProcessing(false);
-    }
+    // Note: Removed automatic AI commentary submission - questions are generated on timer intervals only
   };
 
   // Question Generation
@@ -873,7 +687,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           model: appConfig.aiModel,
           max_tokens: 200,
           temperature: 0.7,
-          system: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language.",
+          system: appConfig.systemPrompt,
           messages: [{ role: 'user', content: prompt }]
         });
         questionsResponse = response.content[0].text;
@@ -882,7 +696,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         const response = await aiClient.client.chat.completions.create({
           model: appConfig.aiModel,
           messages: [
-            { role: 'system', content: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language." },
+            { role: 'system', content: appConfig.systemPrompt },
             { role: 'user', content: prompt }
           ],
           temperature: 0.7,
@@ -893,7 +707,8 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       } else if (aiClient.type === 'gemini') {
         const model = aiClient.client.getGenerativeModel({
           model: appConfig.aiModel,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+          generationConfig: { temperature: 0.7, maxOutputTokens: 200 },
+          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
         });
         const result = await model.generateContent(prompt);
         questionsResponse = result.response.text();
@@ -904,6 +719,24 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       
       // Add newest questions to the TOP of the array
       setSuggestedQuestions(prev => [...questions, ...prev]);
+      
+      // Add to session transcript with questions source
+      if (questions.length > 0) {
+        const questionsText = questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+        const questionsEntry = {
+          text: `Generated Questions:\n${questionsText}`,
+          source: 'questions', // Special source for generated questions
+          timestamp: Date.now(),
+          metadata: {
+            questionsGenerated: questions.length,
+            generatedAt: new Date().toISOString(),
+            dialogueContext: recentDialogue ? 'Yes' : 'No',
+            aiModel: appConfig.aiModel
+          }
+        };
+        
+        setSessionTranscript(prev => [...prev, questionsEntry]);
+      }
       
       // Add to history
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1042,14 +875,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant</title>
+        <title>Executive Coaching Assistant - Question Generator</title>
       </Head>
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <AppBar position="static" color="default" elevation={1}>
           <Toolbar>
             <SmartToyIcon sx={{ mr: 2, color: 'primary.main' }} />
             <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'text.primary' }}>
-              Executive Coaching Assistant
+              Coaching Question Generator
             </Typography>
             
             {/* Dialogue Duration Indicator */}
@@ -1118,14 +951,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                   />
                 </Grid>
                 <Grid item xs={12} md={3}>
-                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isProcessing ? 'warning.light' : 'info.light' }}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: generatingQuestions ? 'warning.light' : 'info.light' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                       <SmartToyIcon />
-                      <Typography variant="subtitle2">AI Assistant</Typography>
-                      {isProcessing && <CircularProgress size={20} />}
+                      <Typography variant="subtitle2">Question Generator</Typography>
+                      {generatingQuestions && <CircularProgress size={20} />}
                     </Box>
                     <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                      {isProcessing ? 'Processing...' : 'Ready'}
+                      {generatingQuestions ? 'Generating Questions...' : 'Ready'}
                     </Typography>
                   </Paper>
                 </Grid>
@@ -1252,9 +1085,14 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                   ) : (
                     <Box sx={{ textAlign: 'center', py: 4 }}>
                       <Typography variant="body2" color="text.secondary">
-                        {generatingQuestions ? 'Generating questions...' : 'No questions generated yet.'}
+                        {generatingQuestions ? 'Generating questions...' : 'No questions generated yet. Questions will be automatically generated based on your settings.'}
                       </Typography>
                       {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
+                      {!generatingQuestions && appConfig.autoSuggestQuestions && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                          Auto-generation every {appConfig.dialogueListenDuration} seconds
+                        </Typography>
+                      )}
                     </Box>
                   )}
                 </CardContent>

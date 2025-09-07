@@ -1,4 +1,5 @@
-// pages/coaching4.js - Enhanced Coaching Assistant (Apple Style)
+// pages/coaching3.js - Enhanced Coaching Assistant (Apple Style)
+import React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';

@@ -1,4 +1,4 @@
-// pages/coaching.js - Simplified Executive Coaching Dashboard with Transcription Download
+// pages/coaching4.js - Enhanced Coaching Assistant (Apple Style)
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
@@ -42,6 +42,7 @@ import {
   Typography,
   useTheme
 } from '@mui/material';
+import { styled } from '@mui/material/styles';
 
 // MUI Icons
 import AddIcon from '@mui/icons-material/Add';
@@ -71,11 +72,122 @@ import OpenAI from 'openai';
 
 // Local Imports
 import SettingsDialog from '../components/SettingsDialog';
-import { setAIResponse } from '../redux/aiResponseSlice';
-import { addToHistory } from '../redux/historySlice';
 import { clearTranscription, setTranscription } from '../redux/transcriptionSlice';
+import { addToHistory } from '../redux/historySlice';
 import { getConfig, setConfig as saveConfig, getModelType } from '../utils/config';
 import { generateQuestionPrompt, parseQuestions, analyzeDialogueForQuestionStyle } from '../utils/coachingPrompts';
+
+// Apple-style theme colors
+const colors = {
+  black: '#000000',
+  white: '#ffffff',
+  gray: {
+    50: '#fafafa',
+    100: '#f5f5f5',
+    200: '#eeeeee',
+    300: '#e0e0e0',
+    400: '#bdbdbd',
+    500: '#9e9e9e',
+    600: '#757575',
+    700: '#616161',
+    800: '#424242',
+    900: '#212121',
+  }
+};
+
+// Apple-style Styled Components
+const AppleAppBar = styled(AppBar)({
+  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+  backdropFilter: 'blur(20px)',
+  borderBottom: `1px solid ${colors.gray[200]}`,
+  boxShadow: 'none',
+});
+
+const AppleButton = styled(Button)({
+  borderRadius: '50px',
+  padding: '12px 32px',
+  fontSize: '0.95rem',
+  fontWeight: 500,
+  textTransform: 'none',
+  boxShadow: 'none',
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  '&:hover': {
+    transform: 'translateY(-1px)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+  }
+});
+
+const AppleCard = styled(Card)({
+  borderRadius: '16px',
+  border: `1px solid ${colors.gray[200]}`,
+  boxShadow: 'none',
+  backgroundColor: colors.white,
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+  }
+});
+
+const StatusCard = styled(Paper)({
+  padding: '1.5rem',
+  textAlign: 'center',
+  borderRadius: '12px',
+  border: `1px solid ${colors.gray[200]}`,
+  boxShadow: 'none',
+  transition: 'all 0.3s ease',
+  backgroundColor: colors.white,
+});
+
+const AppleDialog = styled(Dialog)({
+  '& .MuiDialog-paper': {
+    borderRadius: '16px',
+    boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+  }
+});
+
+const AppleChip = styled(Chip)({
+  borderRadius: '50px',
+  fontWeight: 500,
+  fontSize: '0.85rem',
+});
+
+const AppleTextField = styled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '12px',
+    '& fieldset': {
+      borderColor: colors.gray[300],
+    },
+    '&:hover fieldset': {
+      borderColor: colors.gray[400],
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: colors.black,
+    },
+  },
+});
+
+const AppleSelect = styled(Select)({
+  borderRadius: '12px',
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: colors.gray[300],
+  },
+  '&:hover .MuiOutlinedInput-notchedOutline': {
+    borderColor: colors.gray[400],
+  },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+    borderColor: colors.black,
+  },
+});
+
+const QuestionListItem = styled(ListItem)({
+  borderRadius: '8px',
+  marginBottom: '8px',
+  padding: '12px 16px',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    backgroundColor: colors.gray[50],
+  }
+});
 
 // Utility function
 function debounce(func, timeout = 100) {
@@ -91,7 +203,6 @@ function debounce(func, timeout = 100) {
 export default function CoachingPage() {
   const dispatch = useDispatch();
   const transcriptionFromStore = useSelector(state => state.transcription);
-  const aiResponseFromStore = useSelector(state => state.aiResponse);
   const history = useSelector(state => state.history);
   const theme = useTheme();
 
@@ -104,8 +215,6 @@ export default function CoachingPage() {
   const [isCoacheeMicActive, setIsCoacheeMicActive] = useState(false);
   const [isSystemAudioActive, setIsSystemAudioActive] = useState(false);
   const [coachTranscription, setCoachTranscription] = useState('');
-  const [coacheeAutoMode, setCoacheeAutoMode] = useState(appConfig.coacheeAutoMode !== undefined ? appConfig.coacheeAutoMode : true);
-  const [isManualMode, setIsManualMode] = useState(appConfig.isManualMode !== undefined ? appConfig.isManualMode : false);
 
   // Speaking Status States
   const [isCoacheeSpeaking, setIsCoacheeSpeaking] = useState(false);
@@ -114,7 +223,6 @@ export default function CoachingPage() {
   // AI & Processing States
   const [aiClient, setAiClient] = useState(null);
   const [isAILoading, setIsAILoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
 
   // UI States
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -154,11 +262,7 @@ export default function CoachingPage() {
   // Refs
   const coachInterimTranscription = useRef('');
   const coacheeInterimTranscription = useRef('');
-  const silenceTimer = useRef(null);
   const finalTranscript = useRef({ coach: '', coachee: '' });
-  const isManualModeRef = useRef(isManualMode);
-  const coacheeAutoModeRef = useRef(coacheeAutoMode);
-  const throttledDispatchSetAIResponseRef = useRef(null);
   const dialogueTimerRef = useRef(null);
   const lastQuestionTimeRef = useRef(Date.now());
   const dialogueBufferRef = useRef([]);
@@ -173,36 +277,54 @@ export default function CoachingPage() {
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
-  // Download Transcription Function
-  const downloadTranscription = () => {
+  // Download Transcription Function (CSV and TXT)
+  const downloadTranscription = (format = 'csv') => {
     if (sessionTranscript.length === 0) {
       showSnackbar('No transcription data to download', 'warning');
       return;
     }
 
-    // Prepare CSV content
-    const csvHeaders = ['Timestamp', 'Elapsed Time (seconds)', 'Speaker', 'Text'];
-    const csvRows = sessionTranscript.map(item => {
-      const timestamp = new Date(item.timestamp).toLocaleString();
-      const elapsedSeconds = sessionStartTime ? 
-        Math.floor((item.timestamp - sessionStartTime) / 1000) : 0;
-      // Escape quotes in text and wrap in quotes if contains comma
-      const escapedText = item.text.replace(/"/g, '""');
-      const textCell = escapedText.includes(',') ? `"${escapedText}"` : escapedText;
-      
-      return [
-        timestamp,
-        elapsedSeconds,
-        item.source.charAt(0).toUpperCase() + item.source.slice(1),
-        textCell
-      ].join(',');
-    });
+    let content = '';
+    let filename = '';
+    let mimeType = '';
 
-    // Combine headers and rows
-    const csvContent = [csvHeaders.join(','), ...csvRows].join('\n');
+    if (format === 'csv') {
+      // Prepare CSV content
+      const csvHeaders = ['Timestamp', 'Elapsed Time (seconds)', 'Speaker', 'Text'];
+      const csvRows = sessionTranscript.map(item => {
+        const timestamp = new Date(item.timestamp).toLocaleString();
+        const elapsedSeconds = sessionStartTime ? 
+          Math.floor((item.timestamp - sessionStartTime) / 1000) : 0;
+        // Escape quotes in text and wrap in quotes if contains comma
+        const escapedText = item.text.replace(/"/g, '""');
+        const textCell = escapedText.includes(',') ? `"${escapedText}"` : escapedText;
+        
+        return [
+          timestamp,
+          elapsedSeconds,
+          item.source.charAt(0).toUpperCase() + item.source.slice(1),
+          textCell
+        ].join(',');
+      });
+
+      content = [csvHeaders.join(','), ...csvRows].join('\n');
+      mimeType = 'text/csv;charset=utf-8;';
+      filename = 'coaching-session-transcript.csv';
+    } else if (format === 'txt') {
+      // Prepare TXT content
+      const txtContent = sessionTranscript.map(item => {
+        const timestamp = new Date(item.timestamp).toLocaleString();
+        const speaker = item.source.charAt(0).toUpperCase() + item.source.slice(1);
+        return `[${timestamp}] ${speaker}: ${item.text}`;
+      }).join('\n\n');
+
+      content = `Coaching Session Transcript\n${'='.repeat(50)}\n\n${txtContent}`;
+      mimeType = 'text/plain;charset=utf-8;';
+      filename = 'coaching-session-transcript.txt';
+    }
 
     // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([content], { type: mimeType });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     
@@ -210,16 +332,16 @@ export default function CoachingPage() {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-    const filename = `coaching-session-${dateStr}-${timeStr}.csv`;
+    const finalFilename = filename.replace('.', `-${dateStr}-${timeStr}.`);
     
     link.setAttribute('href', url);
-    link.setAttribute('download', filename);
+    link.setAttribute('download', finalFilename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     
-    showSnackbar('Transcription downloaded successfully', 'success');
+    showSnackbar(`Transcription downloaded as ${format.toUpperCase()}`, 'success');
   };
 
   // Settings Management
@@ -227,8 +349,6 @@ export default function CoachingPage() {
     const newConfig = getConfig();
     setAppConfig(newConfig);
     setIsAILoading(true);
-    setCoacheeAutoMode(newConfig.coacheeAutoMode !== undefined ? newConfig.coacheeAutoMode : true);
-    setIsManualMode(newConfig.isManualMode !== undefined ? newConfig.isManualMode : false);
     showSnackbar('Settings saved successfully', 'success');
   };
 
@@ -282,19 +402,6 @@ export default function CoachingPage() {
     if (isAILoading) initializeAI();
   }, [appConfig, isAILoading, showSnackbar]);
 
-  // Throttled AI Response Dispatch
-  useEffect(() => {
-    throttledDispatchSetAIResponseRef.current = throttle((payload) => {
-      dispatch(setAIResponse(payload));
-    }, 250, { leading: true, trailing: true });
-
-    return () => {
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-    };
-  }, [dispatch]);
-
   // Dialogue Timer Management
   useEffect(() => {
     if (isDialogueActive) {
@@ -330,10 +437,6 @@ export default function CoachingPage() {
     };
   }, [isDialogueActive, appConfig, sessionStartTime]);
 
-  // Update refs when states change
-  useEffect(() => { isManualModeRef.current = isManualMode; }, [isManualMode]);
-  useEffect(() => { coacheeAutoModeRef.current = coacheeAutoMode; }, [coacheeAutoMode]);
-
   // Speech Recognition Functions
   const createRecognizer = async (mediaStream, source) => {
     if (!appConfig.azureToken || !appConfig.azureRegion) {
@@ -363,13 +466,11 @@ export default function CoachingPage() {
         if (source === 'coachee') {
           coacheeInterimTranscription.current = interimText;
           dispatch(setTranscription(finalTranscript.current.coachee + interimText));
-          // Set speaking status
           setIsCoacheeSpeaking(true);
           clearTimeout(speakingTimerRef.current);
         } else {
           coachInterimTranscription.current = interimText;
           setCoachTranscription(finalTranscript.current.coach + interimText);
-          // Set speaking status
           setIsCoachSpeaking(true);
           clearTimeout(speakingTimerRef.current);
         }
@@ -380,11 +481,9 @@ export default function CoachingPage() {
       if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech && e.result.text) {
         if (source === 'coachee') {
           coacheeInterimTranscription.current = '';
-          // Clear speaking status after a short delay
           speakingTimerRef.current = setTimeout(() => setIsCoacheeSpeaking(false), 1000);
         } else {
           coachInterimTranscription.current = '';
-          // Clear speaking status after a short delay
           speakingTimerRef.current = setTimeout(() => setIsCoachSpeaking(false), 1000);
         }
         handleTranscriptionEvent(e.result.text, source);
@@ -563,10 +662,18 @@ export default function CoachingPage() {
     }
   };
 
-  // Transcription Event Handler
+  // Transcription Event Handler - Updated to only capture transcription, no AI commentary
   const handleTranscriptionEvent = (text, source) => {
     const cleanText = text.replace(/\s+/g, ' ').trim();
     if (!cleanText) return;
+
+    // Validate source
+    const validSources = ['coach', 'coachee'];
+    let normalizedSource = source.toLowerCase();
+    if (!validSources.includes(normalizedSource)) {
+      console.warn('Invalid source:', source, 'using coachee as fallback');
+      normalizedSource = 'coachee';
+    }
 
     // Start dialogue tracking if not already active
     if (!isDialogueActive) {
@@ -579,9 +686,20 @@ export default function CoachingPage() {
     // Add to session transcript
     const transcriptEntry = {
       text: cleanText,
-      source: source,
-      timestamp: Date.now()
+      source: normalizedSource,
+      timestamp: Date.now(),
+      metadata: {
+        originalSource: source,
+        textLength: cleanText.length,
+        capturedAt: new Date().toISOString()
+      }
     };
+    
+    console.log('Adding transcript entry:', {
+      source: transcriptEntry.source,
+      textLength: transcriptEntry.text.length,
+      timestamp: new Date(transcriptEntry.timestamp).toISOString()
+    });
     
     setSessionTranscript(prev => [...prev, transcriptEntry]);
     
@@ -594,158 +712,16 @@ export default function CoachingPage() {
       item => item.timestamp > fiveMinutesAgo
     );
 
-    // Update transcription
-    finalTranscript.current[source] += cleanText + ' ';
+    // Update transcription display
+    finalTranscript.current[normalizedSource] += cleanText + ' ';
     
-    if (source === 'coachee') {
+    if (normalizedSource === 'coachee') {
       dispatch(setTranscription(finalTranscript.current.coachee + coacheeInterimTranscription.current));
     } else {
       setCoachTranscription(finalTranscript.current.coach + coachInterimTranscription.current);
     }
 
-    // Handle auto-submission with silence timer
-    if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
-      clearTimeout(silenceTimer.current);
-      silenceTimer.current = setTimeout(() => {
-        askAI(finalTranscript.current[source].trim(), source);
-      }, appConfig.silenceTimerDuration * 1000);
-    }
-  };
-
-  // AI Processing
-  const askAI = async (text, source) => {
-    if (!text.trim()) {
-      showSnackbar('No input text to process.', 'warning');
-      return;
-    }
-    if (!aiClient || isAILoading) {
-      showSnackbar('AI client is not ready. Please wait or check settings.', 'warning');
-      return;
-    }
-
-    const lengthSettings = {
-      concise: { temperature: 0.4, maxTokens: 250 },
-      medium: { temperature: 0.6, maxTokens: 500 },
-      lengthy: { temperature: 0.8, maxTokens: 1000 }
-    };
-    const { temperature, maxTokens } = lengthSettings[appConfig.responseLength || 'medium'];
-
-    setIsProcessing(true);
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    let streamedResponse = '';
-
-    dispatch(addToHistory({ type: 'question', text, timestamp, source, status: 'pending' }));
-    dispatch(setAIResponse(''));
-
-    try {
-      const conversationHistoryForAPI = history
-        .filter(e => e.text && (e.type === 'question' || e.type === 'response') && e.status !== 'pending')
-        .slice(-6)
-        .map(event => ({
-          role: event.type === 'question' ? 'user' : 'assistant',
-          content: event.text,
-        }));
-
-      if (aiClient.type === 'anthropic') {
-        const response = await aiClient.client.messages.create({
-          model: appConfig.aiModel,
-          max_tokens: maxTokens,
-          temperature,
-          system: appConfig.systemPrompt,
-          messages: [
-            ...conversationHistoryForAPI,
-            { role: 'user', content: text }
-          ],
-          stream: true
-        });
-
-        for await (const chunk of response) {
-          if (chunk.type === 'content_block_delta') {
-            const chunkText = chunk.delta.text || '';
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else if (aiClient.type === 'gemini') {
-        const model = aiClient.client.getGenerativeModel({
-          model: appConfig.aiModel,
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
-          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
-        });
-        const chat = model.startChat({
-          history: conversationHistoryForAPI.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          })),
-        });
-        const result = await chat.sendMessageStream(text);
-        for await (const chunk of result.stream) {
-          if (chunk?.text) {
-            const chunkText = chunk.text();
-            streamedResponse += chunkText;
-            if (throttledDispatchSetAIResponseRef.current) {
-              throttledDispatchSetAIResponseRef.current(streamedResponse);
-            }
-          }
-        }
-      } else {
-        const messages = [
-          { role: 'system', content: appConfig.systemPrompt },
-          ...conversationHistoryForAPI,
-          { role: 'user', content: text }
-        ];
-        const stream = await aiClient.client.chat.completions.create({
-          model: appConfig.aiModel,
-          messages,
-          temperature,
-          max_tokens: maxTokens,
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          const chunkText = chunk.choices[0]?.delta?.content || '';
-          streamedResponse += chunkText;
-          if (throttledDispatchSetAIResponseRef.current) {
-            throttledDispatchSetAIResponseRef.current(streamedResponse);
-          }
-        }
-      }
-
-      if (throttledDispatchSetAIResponseRef.current?.cancel) {
-        throttledDispatchSetAIResponseRef.current.cancel();
-      }
-      dispatch(setAIResponse(streamedResponse));
-
-      const finalTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      dispatch(addToHistory({ type: 'response', text: streamedResponse, timestamp: finalTimestamp, status: 'completed' }));
-
-      // Add AI response to session transcript
-      setSessionTranscript(prev => [...prev, {
-        text: streamedResponse,
-        source: 'ai',
-        timestamp: Date.now()
-      }]);
-
-    } catch (error) {
-      console.error("AI request error:", error);
-      const errorMessage = `AI request failed: ${error.message || 'Unknown error'}`;
-      showSnackbar(errorMessage, 'error');
-      dispatch(setAIResponse(`Error: ${errorMessage}`));
-      dispatch(addToHistory({ type: 'response', text: `Error: ${errorMessage}`, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'error' }));
-    } finally {
-      if ((source === 'coachee' && coacheeAutoModeRef.current) || (source === 'coach' && !isManualModeRef.current)) {
-        finalTranscript.current[source] = '';
-        if (source === 'coachee') {
-          coacheeInterimTranscription.current = '';
-          dispatch(setTranscription(''));
-        } else {
-          coachInterimTranscription.current = '';
-          setCoachTranscription('');
-        }
-      }
-      setIsProcessing(false);
-    }
+    // Note: Removed automatic AI commentary submission - questions are generated on timer intervals only
   };
 
   // Question Generation
@@ -824,7 +800,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
           model: appConfig.aiModel,
           max_tokens: 200,
           temperature: 0.7,
-          system: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language.",
+          system: appConfig.systemPrompt,
           messages: [{ role: 'user', content: prompt }]
         });
         questionsResponse = response.content[0].text;
@@ -833,7 +809,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         const response = await aiClient.client.chat.completions.create({
           model: appConfig.aiModel,
           messages: [
-            { role: 'system', content: "You are an expert executive coach. Generate powerful, open-ended coaching questions in the requested language." },
+            { role: 'system', content: appConfig.systemPrompt },
             { role: 'user', content: prompt }
           ],
           temperature: 0.7,
@@ -844,7 +820,8 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       } else if (aiClient.type === 'gemini') {
         const model = aiClient.client.getGenerativeModel({
           model: appConfig.aiModel,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+          generationConfig: { temperature: 0.7, maxOutputTokens: 200 },
+          systemInstruction: { parts: [{ text: appConfig.systemPrompt }] }
         });
         const result = await model.generateContent(prompt);
         questionsResponse = result.response.text();
@@ -855,6 +832,24 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
       
       // Add newest questions to the TOP of the array
       setSuggestedQuestions(prev => [...questions, ...prev]);
+      
+      // Add to session transcript with questions source
+      if (questions.length > 0) {
+        const questionsText = questions.map((q, i) => `${i + 1}. ${q}`).join('\n');
+        const questionsEntry = {
+          text: `Generated Questions:\n${questionsText}`,
+          source: 'questions', // Special source for generated questions
+          timestamp: Date.now(),
+          metadata: {
+            questionsGenerated: questions.length,
+            generatedAt: new Date().toISOString(),
+            dialogueContext: recentDialogue ? 'Yes' : 'No',
+            aiModel: appConfig.aiModel
+          }
+        };
+        
+        setSessionTranscript(prev => [...prev, questionsEntry]);
+      }
       
       // Add to history
       const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -900,34 +895,63 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
 
   // Component Definitions
   const StatusIndicator = ({ isActive, isSpeaking, title, icon }) => (
-    <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isActive ? 'success.light' : 'grey.100' }}>
+    <StatusCard sx={{ 
+      bgcolor: isActive ? colors.gray[50] : colors.white,
+      borderColor: isActive ? colors.black : colors.gray[200],
+    }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-        {icon}
-        <Typography variant="subtitle2">{title}</Typography>
-        {isSpeaking && <FlagIcon sx={{ color: 'success.main', animation: 'pulse 1s infinite' }} />}
+        {React.cloneElement(icon, { sx: { color: isActive ? colors.black : colors.gray[400] } })}
+        <Typography 
+          variant="subtitle2" 
+          sx={{ 
+            fontWeight: 500,
+            color: isActive ? colors.black : colors.gray[600]
+          }}
+        >
+          {title}
+        </Typography>
+        {isSpeaking && (
+          <Box 
+            sx={{ 
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              backgroundColor: 'green',
+              animation: 'pulse 1s infinite' 
+            }} 
+          />
+        )}
       </Box>
-      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+      <Typography 
+        variant="caption" 
+        sx={{ 
+          display: 'block', 
+          mt: 1,
+          color: colors.gray[500],
+          fontWeight: 300
+        }}
+      >
         {isActive ? (isSpeaking ? 'Speaking...' : 'Listening') : 'Inactive'}
       </Typography>
-    </Paper>
+    </StatusCard>
   );
 
   const UrgentQuestionsDialog = () => (
-    <Dialog open={urgentQuestionsDialog} onClose={() => setUrgentQuestionsDialog(false)} maxWidth="sm" fullWidth>
+    <AppleDialog open={urgentQuestionsDialog} onClose={() => setUrgentQuestionsDialog(false)} maxWidth="sm" fullWidth>
       <DialogTitle>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LiveHelpIcon color="primary" />
-          Generate Coaching Questions
+          <LiveHelpIcon sx={{ color: colors.black }} />
+          <Typography sx={{ fontWeight: 500 }}>Generate Coaching Questions</Typography>
         </Box>
       </DialogTitle>
       <DialogContent>
-        <Typography variant="body2" sx={{ mb: 2 }}>
+        <Typography variant="body2" sx={{ mb: 3, color: colors.gray[600] }}>
           Generate powerful coaching questions based on the current conversation context.
         </Typography>
         
         <FormControl fullWidth>
-          <InputLabel>Number of Questions</InputLabel>
-          <Select
+          <InputLabel sx={{ backgroundColor: colors.white, px: 1 }}>Number of Questions</InputLabel>
+          <AppleSelect
             value={urgentQuestionsCount}
             onChange={(e) => setUrgentQuestionsCount(e.target.value)}
             label="Number of Questions"
@@ -935,109 +959,164 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
             <MenuItem value={1}>1 Question - Single focused inquiry</MenuItem>
             <MenuItem value={2}>2 Questions - Balanced exploration</MenuItem>
             <MenuItem value={3}>3 Questions - Multiple perspectives</MenuItem>
-          </Select>
+          </AppleSelect>
         </FormControl>
         
         {dialogueBufferRef.current.length === 0 && (
-          <Alert severity="warning" sx={{ mt: 2 }}>
+          <Alert 
+            severity="warning" 
+            sx={{ 
+              mt: 3,
+              borderRadius: '12px',
+              '& .MuiAlert-icon': { color: colors.gray[600] }
+            }}
+          >
             No recent dialogue captured. Questions will be generated based on general coaching principles.
           </Alert>
         )}
       </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setUrgentQuestionsDialog(false)}>Cancel</Button>
-        <Button 
+      <DialogActions sx={{ p: 3 }}>
+        <AppleButton 
+          onClick={() => setUrgentQuestionsDialog(false)}
+          sx={{ color: colors.gray[600] }}
+        >
+          Cancel
+        </AppleButton>
+        <AppleButton 
           onClick={() => {
             generateCoachingQuestions(urgentQuestionsCount);
             setUrgentQuestionsDialog(false);
           }}
           variant="contained"
-          color="primary"
           disabled={generatingQuestions}
           startIcon={generatingQuestions ? <CircularProgress size={16} /> : <PsychologyIcon />}
+          sx={{
+            backgroundColor: colors.black,
+            color: colors.white,
+            '&:hover': {
+              backgroundColor: colors.gray[800],
+            }
+          }}
         >
           Generate Questions
-        </Button>
+        </AppleButton>
       </DialogActions>
-    </Dialog>
+    </AppleDialog>
   );
 
   const AddQuestionDialog = () => (
-    <Dialog open={addQuestionDialog} onClose={() => setAddQuestionDialog(false)} maxWidth="sm" fullWidth>
-      <DialogTitle>Add Custom Question</DialogTitle>
+    <AppleDialog open={addQuestionDialog} onClose={() => setAddQuestionDialog(false)} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 500 }}>Add Custom Question</DialogTitle>
       <DialogContent>
-        <TextField
+        <AppleTextField
           fullWidth
           multiline
           rows={3}
           value={newQuestionText}
           onChange={(e) => setNewQuestionText(e.target.value)}
           placeholder="Enter your custom coaching question..."
-          sx={{ mt: 1 }}
+          sx={{ mt: 2 }}
         />
       </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setAddQuestionDialog(false)}>Cancel</Button>
-        <Button 
+      <DialogActions sx={{ p: 3 }}>
+        <AppleButton 
+          onClick={() => setAddQuestionDialog(false)}
+          sx={{ color: colors.gray[600] }}
+        >
+          Cancel
+        </AppleButton>
+        <AppleButton 
           onClick={addCustomQuestion}
           variant="contained"
           disabled={!newQuestionText.trim()}
+          sx={{
+            backgroundColor: colors.black,
+            color: colors.white,
+            '&:hover': {
+              backgroundColor: colors.gray[800],
+            }
+          }}
         >
           Add Question
-        </Button>
+        </AppleButton>
       </DialogActions>
-    </Dialog>
+    </AppleDialog>
   );
 
   // Main Render
   return (
     <>
       <Head>
-        <title>Executive Coaching Assistant - Simplified Dashboard</title>
+        <title>Executive Coaching Assistant - Question Generator</title>
       </Head>
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <AppBar position="static" color="default" elevation={1}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: colors.gray[50] }}>
+        <AppleAppBar position="static">
           <Toolbar>
-            <SmartToyIcon sx={{ mr: 2, color: 'primary.main' }} />
-            <Typography variant="h6" component="div" sx={{ flexGrow: 1, color: 'text.primary' }}>
-              Executive Coaching Assistant - Simplified
+            <SmartToyIcon sx={{ mr: 2, color: colors.black }} />
+            <Typography 
+              variant="h6" 
+              component="div" 
+              sx={{ 
+                flexGrow: 1, 
+                color: colors.black,
+                fontWeight: 300,
+                fontSize: '1.25rem'
+              }}
+            >
+              Question Generator
             </Typography>
             
             {/* Dialogue Duration Indicator */}
             {isDialogueActive && (
-              <Chip
+              <AppleChip
                 icon={<TimerIcon />}
                 label={`Session: ${Math.floor(dialogueDuration / 60)}:${(dialogueDuration % 60).toString().padStart(2, '0')}`}
-                color="primary"
-                variant="outlined"
-                sx={{ mr: 2 }}
+                sx={{ 
+                  mr: 2,
+                  backgroundColor: colors.black,
+                  color: colors.white,
+                  '& .MuiChip-icon': { color: colors.white }
+                }}
               />
             )}
             
-            {/* Download Transcription Button */}
-            <Tooltip title={sessionTranscript.length > 0 ? "Download session transcript" : "No transcript data yet"}>
-              <span>
-                <IconButton 
-                  color="primary" 
-                  onClick={downloadTranscription} 
-                  disabled={sessionTranscript.length === 0}
-                  aria-label="download transcript"
-                  sx={{ mr: 1 }}
-                >
-                  <DownloadIcon />
-                </IconButton>
-              </span>
+            {/* Download Buttons */}
+            <Tooltip title="Download CSV">
+              <IconButton 
+                onClick={() => downloadTranscription('csv')} 
+                disabled={sessionTranscript.length === 0}
+                aria-label="download CSV"
+                sx={{ mr: 1, color: colors.black }}
+              >
+                <DownloadIcon />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="Download TXT">
+              <AppleButton 
+                onClick={() => downloadTranscription('txt')} 
+                disabled={sessionTranscript.length === 0}
+                size="small"
+                sx={{ 
+                  mr: 2,
+                  minWidth: 'auto',
+                  padding: '6px 16px',
+                  color: colors.black
+                }}
+              >
+                TXT
+              </AppleButton>
             </Tooltip>
             
             <Tooltip title="Settings">
-              <IconButton color="primary" onClick={() => setSettingsOpen(true)} aria-label="settings">
+              <IconButton onClick={() => setSettingsOpen(true)} aria-label="settings" sx={{ color: colors.black }}>
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
           </Toolbar>
-        </AppBar>
+        </AppleAppBar>
 
-        <Container maxWidth="xl" sx={{ flexGrow: 1, py: 2 }}>
+        <Container maxWidth="xl" sx={{ flexGrow: 1, py: 3 }}>
           <Grid container spacing={3} sx={{ height: '100%' }}>
             {/* Top Row - Status Indicators */}
             <Grid item xs={12}>
@@ -1058,188 +1137,310 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     icon={<PersonIcon />}
                   />
                 </Grid>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: isProcessing ? 'warning.light' : 'info.light' }}>
+                <Grid item xs={12} md={3}>
+                  <StatusCard sx={{ 
+                    bgcolor: generatingQuestions ? colors.gray[50] : colors.white,
+                    borderColor: generatingQuestions ? colors.black : colors.gray[200],
+                  }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                      <SmartToyIcon />
-                      <Typography variant="subtitle2">AI Assistant</Typography>
-                      {isProcessing && <CircularProgress size={20} />}
+                      <SmartToyIcon sx={{ color: generatingQuestions ? colors.black : colors.gray[400] }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 500, color: colors.black }}>
+                        Question Generator
+                      </Typography>
+                      {generatingQuestions && <CircularProgress size={20} sx={{ color: colors.black }} />}
                     </Box>
-                    <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                      {isProcessing ? 'Processing...' : 'Ready'}
-                      {sessionTranscript.length > 0 && (
-                        <Typography variant="caption" sx={{ display: 'block' }}>
-                          ({sessionTranscript.length} entries captured)
-                        </Typography>
-                      )}
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: colors.gray[500], fontWeight: 300 }}>
+                      {generatingQuestions ? 'Generating...' : 'Ready'}
                     </Typography>
-                  </Paper>
+                  </StatusCard>
+                </Grid>
+                <Grid item xs={12} md={3}>
+                  <StatusCard>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                      <DownloadIcon sx={{ color: colors.gray[400] }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 500, color: colors.black }}>
+                        Session Data
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: colors.gray[500], fontWeight: 300 }}>
+                      {sessionTranscript.length} entries captured
+                    </Typography>
+                  </StatusCard>
                 </Grid>
               </Grid>
             </Grid>
 
             {/* Control Buttons Row */}
             <Grid item xs={12}>
-              <Paper sx={{ p: 2 }}>
+              <AppleCard sx={{ p: 2 }}>
                 <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={3}>
-                    <Button
+                  <Grid item xs={12} md={2.4}>
+                    <AppleButton
                       onClick={startSystemAudioRecognition}
                       variant="contained"
-                      color={isSystemAudioActive ? 'error' : 'primary'}
                       startIcon={isSystemAudioActive ? <StopScreenShareIcon /> : <ScreenShareIcon />}
                       fullWidth
+                      sx={{
+                        backgroundColor: isSystemAudioActive ? colors.gray[800] : colors.black,
+                        color: colors.white,
+                        '&:hover': {
+                          backgroundColor: isSystemAudioActive ? colors.gray[700] : colors.gray[800],
+                        }
+                      }}
                     >
-                      {isSystemAudioActive ? 'Stop System Audio' : 'Start System Audio'}
-                    </Button>
+                      {isSystemAudioActive ? 'Stop System' : 'System Audio'}
+                    </AppleButton>
                   </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Button
+                  <Grid item xs={12} md={2.4}>
+                    <AppleButton
                       onClick={() => startMicrophoneRecognition('coach')}
                       variant="contained"
-                      color={isCoachMicActive ? 'error' : 'primary'}
                       startIcon={isCoachMicActive ? <MicOffIcon /> : <MicIcon />}
                       fullWidth
+                      sx={{
+                        backgroundColor: isCoachMicActive ? colors.gray[800] : colors.black,
+                        color: colors.white,
+                        '&:hover': {
+                          backgroundColor: isCoachMicActive ? colors.gray[700] : colors.gray[800],
+                        }
+                      }}
                     >
-                      {isCoachMicActive ? 'Stop Coach Mic' : 'Start Coach Mic'}
-                    </Button>
+                      {isCoachMicActive ? 'Stop Coach' : 'Coach Mic'}
+                    </AppleButton>
                   </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Button
+                  <Grid item xs={12} md={2.4}>
+                    <AppleButton
                       onClick={() => generateCoachingQuestions(appConfig.numberOfQuestions)}
                       variant="contained"
-                      color="secondary"
                       startIcon={generatingQuestions ? <CircularProgress size={16} color="inherit" /> : <PsychologyIcon />}
                       fullWidth
                       disabled={generatingQuestions || !aiClient || isAILoading}
+                      sx={{
+                        backgroundColor: colors.black,
+                        color: colors.white,
+                        '&:hover': {
+                          backgroundColor: colors.gray[800],
+                        },
+                        '&:disabled': {
+                          backgroundColor: colors.gray[300],
+                          color: colors.gray[500],
+                        }
+                      }}
                     >
-                      {generatingQuestions ? 'Generating...' : 'Generate Questions'}
-                    </Button>
+                      {generatingQuestions ? 'Generating...' : 'Generate'}
+                    </AppleButton>
                   </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Button
-                      onClick={downloadTranscription}
+                  <Grid item xs={12} md={2.4}>
+                    <AppleButton
+                      onClick={() => downloadTranscription('csv')}
                       variant="outlined"
-                      color="primary"
                       startIcon={<DownloadIcon />}
                       fullWidth
                       disabled={sessionTranscript.length === 0}
+                      sx={{
+                        borderColor: colors.gray[400],
+                        color: colors.black,
+                        '&:hover': {
+                          borderColor: colors.black,
+                          backgroundColor: colors.gray[50],
+                        }
+                      }}
                     >
-                      Download Session
-                    </Button>
+                      Download CSV
+                    </AppleButton>
+                  </Grid>
+                  <Grid item xs={12} md={2.4}>
+                    <AppleButton
+                      onClick={() => downloadTranscription('txt')}
+                      variant="outlined"
+                      startIcon={<DownloadIcon />}
+                      fullWidth
+                      disabled={sessionTranscript.length === 0}
+                      sx={{
+                        borderColor: colors.gray[400],
+                        color: colors.black,
+                        '&:hover': {
+                          borderColor: colors.black,
+                          backgroundColor: colors.gray[50],
+                        }
+                      }}
+                    >
+                      Download TXT
+                    </AppleButton>
                   </Grid>
                 </Grid>
-              </Paper>
+              </AppleCard>
             </Grid>
 
             {/* Questions Section */}
             <Grid item xs={12} md={8}>
-              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <AppleCard sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <CardHeader
-                  title="AI Suggested Questions"
-                  avatar={<QuestionAnswerIcon />}
+                  title={
+                    <Typography sx={{ fontWeight: 300, fontSize: '1.25rem', color: colors.black }}>
+                      AI Suggested Questions
+                    </Typography>
+                  }
+                  avatar={<QuestionAnswerIcon sx={{ color: colors.black }} />}
                   action={
-                    <Button
+                    <AppleButton
                       variant="outlined"
                       size="small"
                       onClick={() => setUrgentQuestionsDialog(true)}
                       startIcon={<HelpOutlineIcon />}
+                      sx={{
+                        borderColor: colors.gray[300],
+                        color: colors.black,
+                        padding: '6px 16px',
+                        '&:hover': {
+                          borderColor: colors.black,
+                          backgroundColor: colors.gray[50],
+                        }
+                      }}
                     >
                       Custom
-                    </Button>
+                    </AppleButton>
                   }
-                  sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
+                  sx={{ borderBottom: `1px solid ${colors.gray[200]}` }}
                 />
                 <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
                   {suggestedQuestions.length > 0 ? (
                     <List>
                       {suggestedQuestions.map((question, index) => (
-                        <ListItem key={index} sx={{ bgcolor: index < 3 ? 'action.hover' : 'transparent', mb: 1, borderRadius: 1 }}>
+                        <QuestionListItem 
+                          key={index} 
+                          sx={{ 
+                            bgcolor: index < 3 ? colors.gray[50] : 'transparent',
+                            border: `1px solid ${index < 3 ? colors.gray[300] : 'transparent'}`,
+                          }}
+                        >
                           <ListItemIcon>
-                            <Chip label={`Q${index + 1}`} size="small" color="primary" />
+                            <AppleChip 
+                              label={`Q${index + 1}`} 
+                              size="small" 
+                              sx={{
+                                backgroundColor: index < 3 ? colors.black : colors.gray[300],
+                                color: index < 3 ? colors.white : colors.gray[700],
+                                fontWeight: 500,
+                              }}
+                            />
                           </ListItemIcon>
                           <ListItemText
                             primary={question}
-                            primaryTypographyProps={{ variant: 'body1', fontWeight: index < 3 ? 'medium' : 'normal' }}
+                            primaryTypographyProps={{ 
+                              variant: 'body1', 
+                              fontWeight: index < 3 ? 500 : 400,
+                              color: colors.black
+                            }}
                           />
                           <IconButton
                             onClick={() => activateQuestion(question)}
-                            color="primary"
                             size="small"
+                            sx={{ 
+                              color: colors.gray[600],
+                              '&:hover': {
+                                color: colors.black,
+                                backgroundColor: colors.gray[100],
+                              }
+                            }}
                           >
                             <AddIcon />
                           </IconButton>
-                        </ListItem>
+                        </QuestionListItem>
                       ))}
                     </List>
                   ) : (
-                    <Box sx={{ textAlign: 'center', py: 4 }}>
-                      <Typography variant="body2" color="text.secondary">
+                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                      <Typography variant="body2" sx={{ color: colors.gray[500], fontWeight: 300 }}>
                         {generatingQuestions ? 'Generating questions...' : 'No questions generated yet.'}
                       </Typography>
-                      {generatingQuestions && <CircularProgress sx={{ mt: 2 }} />}
+                      {generatingQuestions && <CircularProgress sx={{ mt: 3, color: colors.black }} />}
+                      {!generatingQuestions && appConfig.autoSuggestQuestions && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 2, color: colors.gray[400] }}>
+                          Auto-generation every {appConfig.dialogueListenDuration} seconds
+                        </Typography>
+                      )}
                     </Box>
                   )}
                 </CardContent>
-              </Card>
+              </AppleCard>
             </Grid>
 
             {/* Active Questions Section */}
             <Grid item xs={12} md={4}>
-              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <AppleCard sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <CardHeader
-                  title={`Active Questions (${activeQuestions.length}/10)`}
-                  avatar={<CheckCircleIcon />}
+                  title={
+                    <Typography sx={{ fontWeight: 300, fontSize: '1.25rem', color: colors.black }}>
+                      Active Questions ({activeQuestions.length}/10)
+                    </Typography>
+                  }
+                  avatar={<CheckCircleIcon sx={{ color: colors.black }} />}
                   action={
-                    <Button
+                    <AppleButton
                       variant="outlined"
                       size="small"
                       onClick={() => setAddQuestionDialog(true)}
                       startIcon={<AddIcon />}
                       disabled={preloadedQuestions.length >= 20}
+                      sx={{
+                        borderColor: colors.gray[300],
+                        color: colors.black,
+                        padding: '6px 16px',
+                        '&:hover': {
+                          borderColor: colors.black,
+                          backgroundColor: colors.gray[50],
+                        }
+                      }}
                     >
                       Add
-                    </Button>
+                    </AppleButton>
                   }
-                  sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}
+                  sx={{ borderBottom: `1px solid ${colors.gray[200]}` }}
                 />
                 <CardContent sx={{ flexGrow: 1, overflow: 'auto' }}>
                   {activeQuestions.length > 0 ? (
                     <List dense>
                       {activeQuestions.map((question, index) => (
-                        <ListItem
+                        <QuestionListItem
                           key={index}
                           sx={{ 
-                            bgcolor: 'success.light', 
-                            mb: 1, 
-                            borderRadius: 1,
+                            bgcolor: colors.gray[50],
+                            border: `1px solid ${colors.gray[300]}`,
                             cursor: 'pointer',
-                            '&:hover': { bgcolor: 'success.main', color: 'white' }
+                            '&:hover': { 
+                              bgcolor: colors.gray[100],
+                              borderColor: colors.black,
+                            }
                           }}
                           onClick={() => removeActiveQuestion(question)}
                         >
                           <ListItemText
                             primary={question}
-                            primaryTypographyProps={{ variant: 'body2' }}
+                            primaryTypographyProps={{ 
+                              variant: 'body2',
+                              color: colors.black,
+                              fontWeight: 400
+                            }}
                           />
-                          <IconButton size="small" color="error">
+                          <IconButton size="small" sx={{ color: colors.gray[500] }}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
-                        </ListItem>
+                        </QuestionListItem>
                       ))}
                     </List>
                   ) : (
                     <Box sx={{ textAlign: 'center', py: 4 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        No active questions. Click "Add" or use the "+" button next to AI suggestions.
+                      <Typography variant="body2" sx={{ color: colors.gray[500], fontWeight: 300 }}>
+                        No active questions. Click "Add" or use the "+" button.
                       </Typography>
                     </Box>
                   )}
                   
                   {preloadedQuestions.length > 0 && (
                     <>
-                      <Divider sx={{ my: 2 }} />
-                      <Typography variant="subtitle2" gutterBottom>
+                      <Divider sx={{ my: 2, borderColor: colors.gray[200] }} />
+                      <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 500, color: colors.black }}>
                         Available Questions
                       </Typography>
                       <List dense>
@@ -1248,7 +1449,8 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                             key={index}
                             sx={{ 
                               cursor: 'pointer',
-                              '&:hover': { bgcolor: 'action.hover' },
+                              borderRadius: '6px',
+                              '&:hover': { bgcolor: colors.gray[50] },
                               opacity: activeQuestions.includes(question) ? 0.5 : 1
                             }}
                             onClick={() => activateQuestion(question)}
@@ -1256,7 +1458,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                           >
                             <ListItemText
                               primary={question}
-                              primaryTypographyProps={{ variant: 'caption' }}
+                              primaryTypographyProps={{ 
+                                variant: 'caption',
+                                color: colors.gray[600],
+                                fontWeight: 300
+                              }}
                             />
                           </ListItem>
                         ))}
@@ -1264,7 +1470,11 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                           <ListItem>
                             <ListItemText
                               primary={`... and ${preloadedQuestions.length - 5} more`}
-                              primaryTypographyProps={{ variant: 'caption', fontStyle: 'italic' }}
+                              primaryTypographyProps={{ 
+                                variant: 'caption', 
+                                fontStyle: 'italic',
+                                color: colors.gray[400]
+                              }}
                             />
                           </ListItem>
                         )}
@@ -1272,7 +1482,7 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
                     </>
                   )}
                 </CardContent>
-              </Card>
+              </AppleCard>
             </Grid>
           </Grid>
         </Container>
@@ -1289,11 +1499,23 @@ Please provide exactly ${questionsToGenerate} question(s), numbered and separate
         {/* Snackbar for notifications */}
         <Snackbar
           open={snackbarOpen}
-          autoHideDuration={4000}
+          autoHideDuration={6000}
           onClose={handleSnackbarClose}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
-          <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          <Alert 
+            onClose={handleSnackbarClose} 
+            severity={snackbarSeverity} 
+            sx={{ 
+              width: '100%',
+              borderRadius: '12px',
+              '& .MuiAlert-icon': {
+                color: snackbarSeverity === 'error' ? 'error.main' : 
+                       snackbarSeverity === 'warning' ? 'warning.main' : 
+                       snackbarSeverity === 'success' ? 'success.main' : 'info.main'
+              }
+            }}
+          >
             {snackbarMessage}
           </Alert>
         </Snackbar>
